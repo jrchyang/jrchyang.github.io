@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 7.3.0">
+<meta name="google-site-verification" content="HcM0QD3nDqJPL_6jKgULvhwh22wnrPX3x9SbgNm3dA0" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+<link rel="stylesheet" href="https://fonts.loli.ne/css?family=Lato:300,300italic,400,400italic,700,700italic&display=swap&subset=latin,latin-ext">
+<link rel="stylesheet" href="/lib/font-awesome/css/all.min.css">
+
+<script id="hexo-configurations">
+    var NexT = window.NexT || {};
+    var CONFIG = {"hostname":"jrchyang.github.io","root":"/","scheme":"Gemini","version":"7.8.0","exturl":false,"sidebar":{"position":"left","display":"post","padding":18,"offset":12,"onmobile":false},"copycode":{"enable":false,"show_result":false,"style":null},"back2top":{"enable":true,"sidebar":false,"scrollpercent":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":false,"trigger":"auto","top_n_per_article":1,"unescape":false,"preload":false},"motion":{"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}}};
+  </script>
+
+  <meta name="description" content="详细分析 RAID5 I&#x2F;O 处理中磁盘替换处理部分的代码">
+<meta property="og:type" content="article">
+<meta property="og:title" content="RAID5 I&#x2F;O 处理之 replace 代码详解">
+<meta property="og:url" content="https://jrchyang.github.io/2024/07/26/raid5-replacement/index.html">
+<meta property="og:site_name" content="Jrchyang">
+<meta property="og:description" content="详细分析 RAID5 I&#x2F;O 处理中磁盘替换处理部分的代码">
+<meta property="og:locale" content="zh_CN">
+<meta property="article:published_time" content="2024-07-26T07:40:54.000Z">
+<meta property="article:modified_time" content="2024-08-06T13:40:13.984Z">
+<meta property="article:author" content="Jrchyang">
+<meta property="article:tag" content="raid5">
+<meta name="twitter:card" content="summary">
+
+<link rel="canonical" href="https://jrchyang.github.io/2024/07/26/raid5-replacement/">
+
+
+<script id="page-configurations">
+  // https://hexo.io/docs/variables.html
+  CONFIG.page = {
+    sidebar: "",
+    isHome : false,
+    isPost : true,
+    lang   : 'zh-CN'
+  };
+</script>
+
+  <title>RAID5 I/O 处理之 replace 代码详解 | Jrchyang</title>
+  
+
+
+  <script>
+    var _hmt = _hmt || [];
+    (function() {
+      var hm = document.createElement("script");
+      hm.src = "https://hm.baidu.com/hm.js?78ac82b416bd1dcfdd98af4007d72b77";
+      var s = document.getElementsByTagName("script")[0];
+      s.parentNode.insertBefore(hm, s);
+    })();
+  </script>
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-header { opacity: initial; }
+
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="container use-motion">
+    <div class="headband"></div>
+
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏">
+      <span class="toggle-line toggle-line-first"></span>
+      <span class="toggle-line toggle-line-middle"></span>
+      <span class="toggle-line toggle-line-last"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <span class="logo-line-before"><i></i></span>
+      <h1 class="site-title">Jrchyang</h1>
+      <span class="logo-line-after"><i></i></span>
+    </a>
+      <p class="site-subtitle" itemprop="description">好好学习 天天向上</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+    </div>
+  </div>
+</div>
+
+
+
+
+<nav class="site-nav">
+  <ul id="menu" class="main-menu menu">
+        <li class="menu-item menu-item-home">
+
+    <a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a>
+
+  </li>
+        <li class="menu-item menu-item-categories">
+
+    <a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>分类</a>
+
+  </li>
+        <li class="menu-item menu-item-tags">
+
+    <a href="/tags/" rel="section"><i class="fa fa-tags fa-fw"></i>标签</a>
+
+  </li>
+        <li class="menu-item menu-item-archives">
+
+    <a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a>
+
+  </li>
+  </ul>
+</nav>
+
+
+
+
+</div>
+    </header>
+
+    
+  <div class="back-to-top">
+    <i class="fa fa-arrow-up"></i>
+    <span>0%</span>
+  </div>
+
+
+    <main class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+
+          <div class="content post posts-expand">
+            
+
+    
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://jrchyang.github.io/2024/07/26/raid5-replacement/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.jpg">
+      <meta itemprop="name" content="Jrchyang">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="Jrchyang">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          RAID5 I/O 处理之 replace 代码详解
+        </h1>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-calendar"></i>
+              </span>
+              <span class="post-meta-item-text">发表于</span>
+
+              <time title="创建时间：2024-07-26 15:40:54" itemprop="dateCreated datePublished" datetime="2024-07-26T15:40:54+08:00">2024-07-26</time>
+            </span>
+              <span class="post-meta-item">
+                <span class="post-meta-item-icon">
+                  <i class="far fa-calendar-check"></i>
+                </span>
+                <span class="post-meta-item-text">更新于</span>
+                <time title="修改时间：2024-08-06 21:40:13" itemprop="dateModified" datetime="2024-08-06T21:40:13+08:00">2024-08-06</time>
+              </span>
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-folder"></i>
+              </span>
+              <span class="post-meta-item-text">分类于</span>
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/md/" itemprop="url" rel="index"><span itemprop="name">md</span></a>
+                </span>
+            </span>
+
+          
+            <div class="post-description">详细分析 RAID5 I/O 处理中磁盘替换处理部分的代码</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+        <h2 id="1-作用"><a href="#1-作用" class="headerlink" title="1. 作用"></a>1. 作用</h2><p>从字面意思理解，replacement 即是替换。我们知道硬盘都有一定的使用寿命，可以在硬盘失效之前通过该功能将就盘的数据迁移至新盘。因为 replacement 的流程是从旧盘中读出数据直接写入新盘，因此比重构少很多读和校验值计算的操作，效率更高。</p>
+<p>另外在 raid2.0 中，由于硬盘切片的使用方式，当系统只添加一块新盘时无法直接给 raid 扩容，需要先进行资源均衡，使得各盘空闲空间一致后再扩容，所以 replacement 同样适用于均衡场景中切片回收替换的逻辑。</p>
+<h2 id="2-代码解析"><a href="#2-代码解析" class="headerlink" title="2. 代码解析"></a>2. 代码解析</h2><h3 id="2-1-需替换设置"><a href="#2-1-需替换设置" class="headerlink" title="2.1. 需替换设置"></a>2.1. 需替换设置</h3><p>通过命令 <code>echo want_replacement &gt; /sys/block/md0/md/dev-sdb/state</code> 设置硬盘标记为”需替换”状态，该 sys 命令会执行如下代码：</p>
+<figure class="highlight c++"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">state_store</span>()</span><br><span class="line">    <span class="comment">/* Replacement标记表明成员磁盘新盘，不能被设置为需替换 */</span></span><br><span class="line"> \<span class="function">_ <span class="title">if</span> <span class="params">(rdev-&gt;raid_disk &gt;= <span class="number">0</span> &amp;&amp; !test_bit(Replacement, &amp;rdev-&gt;flags))</span></span></span><br><span class="line"><span class="function">        <span class="comment">/* 给旧盘设置标记表明该成员磁盘是需要替换的 */</span></span></span><br><span class="line"><span class="function">        <span class="title">set_bit</span><span class="params">(WantReplacement, &amp;rdev-&gt;flags)</span></span>;</span><br><span class="line">    <span class="comment">/* 设置md为不要需要重构状态 */</span></span><br><span class="line"> \<span class="function">_ <span class="title">set_bit</span><span class="params">(MD_RECOVERY_NEEDED, &amp;rdev-&gt;mddev-&gt;recovery)</span></span>;</span><br><span class="line">    <span class="comment">/* 唤醒raid5d */</span></span><br><span class="line"> \<span class="function">_ <span class="title">md_wakeup_thread</span><span class="params">(rdev-&gt;mddev-&gt;thread)</span></span>;</span><br><span class="line">     \<span class="function">_ <span class="title">raid5d</span><span class="params">()</span></span></span><br><span class="line"><span class="function">            <span class="comment">/* 检查是否需要同步</span></span></span><br><span class="line"><span class="comment"><span class="function">             * 此时在sys接口的调用栈中，try_lock失败直接退出未创建同步线程</span></span></span><br><span class="line"><span class="comment"><span class="function">             */</span></span></span><br><span class="line"><span class="function">         \_ <span class="title">md_check_recovery</span><span class="params">()</span>  </span></span><br></pre></td></tr></table></figure>
+
+<h3 id="2-2-加入新盘"><a href="#2-2-加入新盘" class="headerlink" title="2.2. 加入新盘"></a>2.2. 加入新盘</h3><p>通过命令 <code>mdadm --manage -a /dev/md0 /dev/sde</code> 给块设备加入新盘，新盘加入后自动开始同步。</p>
+<p>函数调用关系如下：</p>
+<figure class="highlight c++"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">md_ioctl</span>()</span><br><span class="line"> \<span class="function">_ <span class="title">add_new_disk</span><span class="params">()</span></span></span><br><span class="line"><span class="function"></span></span><br><span class="line"><span class="function"><span class="title">raid5d</span><span class="params">()</span></span></span><br><span class="line"><span class="function"> \_ <span class="title">md_check_recovery</span><span class="params">()</span></span></span><br><span class="line"><span class="function">     \_ <span class="title">remove_and_add_spares</span><span class="params">()</span></span></span><br><span class="line"><span class="function">         \_ <span class="title">raid5_add_disk</span><span class="params">()</span></span></span><br><span class="line"><span class="function">     \_ <span class="title">md_register_thread</span><span class="params">()</span></span></span><br><span class="line"><span class="function">     \_ <span class="title">md_wakeup_thread</span><span class="params">(mddev-&gt;sync_thread)</span></span></span><br><span class="line"><span class="function"></span></span><br><span class="line"><span class="function"><span class="title">md_do_sync</span><span class="params">()</span></span></span><br></pre></td></tr></table></figure>
+
+<p>这里关键函数为 <code>raid5_add_disk()</code> ，在函数内设置了相关 rdev 的各项标记，这里只说明该函数的相关逻辑，如下：</p>
+<figure class="highlight c++"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="type">static</span> <span class="type">int</span> <span class="title">raid5_add_disk</span><span class="params">(<span class="keyword">struct</span> mddev *mddev, <span class="keyword">struct</span> md_rdev *rdev)</span></span></span><br><span class="line"><span class="function"></span>&#123;</span><br><span class="line">    <span class="keyword">struct</span> <span class="title class_">r5conf</span> *conf = mddev-&gt;<span class="keyword">private</span>;</span><br><span class="line">    <span class="keyword">struct</span> <span class="title class_">disk_info</span> *p;</span><br><span class="line">    <span class="type">int</span> first = <span class="number">0</span>;</span><br><span class="line">    <span class="type">int</span> last = conf-&gt;raid_disk - <span class="number">1</span>;</span><br><span class="line">    </span><br><span class="line">    <span class="comment">/* 遍历所有磁盘 */</span></span><br><span class="line">    <span class="keyword">for</span> (disk = first; disk &lt;= last; disk++) &#123;</span><br><span class="line">        p = conf-&gt;disk + disk;</span><br><span class="line">        <span class="comment">/* 如果设置了需替换标记且尚未指定新盘 */</span></span><br><span class="line">        <span class="keyword">if</span> (<span class="built_in">test_bit</span>(WantReplacement, &amp;rdev-&gt;flags) &amp;&amp;</span><br><span class="line">             p-&gt;replacement == <span class="literal">NULL</span>) &#123;</span><br><span class="line">            <span class="comment">/* 设置磁盘状态为未同步 */</span></span><br><span class="line">            <span class="built_in">clear_bit</span>(In_sync, &amp;rdev-&gt;flags);</span><br><span class="line">            <span class="comment">/* 设置新盘在md中的磁盘索引 */</span></span><br><span class="line">            rdev-&gt;raid_disk = disk;</span><br><span class="line">            <span class="comment">/* 设置md需要全盘同步 */</span></span><br><span class="line">            config-&gt;fullsync = <span class="number">1</span>;</span><br><span class="line">            <span class="comment">/* 给replacement指针赋值使其指向新盘 */</span></span><br><span class="line">            <span class="built_in">rcu_assign_pointer</span>(p-&gt;replacement, rdev);</span><br><span class="line">            <span class="keyword">break</span>;</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>加入新盘后调用 <code>md_do_sync()</code> 会发起同步</p>
+<h3 id="2-3-条带处理"><a href="#2-3-条带处理" class="headerlink" title="2.3. 条带处理"></a>2.3. 条带处理</h3><p>在同步函数中，循环调用 <code>sync_request()</code> ，该函数主要逻辑如下：</p>
+<figure class="highlight c++"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="type">static</span> <span class="keyword">inline</span> <span class="type">sector_t</span> <span class="title">sync_request</span><span class="params">(<span class="keyword">struct</span> mddev *mddev, <span class="type">sector_t</span> sector_nr, <span class="type">int</span> *skipped, <span class="type">int</span> go_faster)</span></span></span><br><span class="line"><span class="function"></span>&#123;</span><br><span class="line">        <span class="comment">/* 获取一个空闲条带 */</span></span><br><span class="line">        sh = <span class="built_in">get_active_stripe</span>(conf, sector_nr, <span class="number">0</span>, <span class="number">1</span>, <span class="number">0</span>);</span><br><span class="line">        <span class="keyword">if</span> (sh == <span class="literal">NULL</span>) &#123;</span><br><span class="line">                sh = <span class="built_in">get_active_stripe</span>(conf, sector_nr, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>);</span><br><span class="line">                <span class="built_in">schedule_timeout_uninterruptible</span>(<span class="number">1</span>);</span><br><span class="line">        &#125;</span><br><span class="line"></span><br><span class="line">        <span class="comment">/* 设置同步标记 */</span></span><br><span class="line">        <span class="built_in">set_bit</span>(STRIPE_SYNC_REQUESTED, &amp;sh-&gt;state);</span><br><span class="line"></span><br><span class="line">        <span class="comment">/* 将条带推入条带状态机处理 */</span></span><br><span class="line">        <span class="built_in">handle_stripe</span>(sh);</span><br><span class="line">        <span class="built_in">release_stripe</span>(sh);</span><br><span class="line"></span><br><span class="line">        <span class="keyword">return</span> STRIPE_SECTORS;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<h4 id="2-3-1-下发读请求"><a href="#2-3-1-下发读请求" class="headerlink" title="2.3.1. 下发读请求"></a>2.3.1. 下发读请求</h4><p>函数调用关系：</p>
+<figure class="highlight c++"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">handle_stripe</span>()</span><br><span class="line"> \<span class="function">_ <span class="title">analyse_stripe</span><span class="params">()</span></span></span><br><span class="line"><span class="function"> \_ <span class="title">handle_stripe_fill</span><span class="params">()</span></span></span><br><span class="line"><span class="function">     \_ <span class="title">fetch_block</span><span class="params">()</span></span></span><br><span class="line"><span class="function"> \_ <span class="title">ops_run_io</span><span class="params">()</span></span></span><br></pre></td></tr></table></figure>
+
+<p>代码逻辑如下：</p>
+<figure class="highlight c++"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br><span class="line">78</span><br><span class="line">79</span><br><span class="line">80</span><br><span class="line">81</span><br><span class="line">82</span><br><span class="line">83</span><br><span class="line">84</span><br><span class="line">85</span><br><span class="line">86</span><br><span class="line">87</span><br><span class="line">88</span><br><span class="line">89</span><br><span class="line">90</span><br><span class="line">91</span><br><span class="line">92</span><br><span class="line">93</span><br><span class="line">94</span><br><span class="line">95</span><br><span class="line">96</span><br><span class="line">97</span><br><span class="line">98</span><br><span class="line">99</span><br><span class="line">100</span><br><span class="line">101</span><br><span class="line">102</span><br><span class="line">103</span><br><span class="line">104</span><br><span class="line">105</span><br><span class="line">106</span><br><span class="line">107</span><br><span class="line">108</span><br><span class="line">109</span><br><span class="line">110</span><br><span class="line">111</span><br><span class="line">112</span><br><span class="line">113</span><br><span class="line">114</span><br><span class="line">115</span><br><span class="line">116</span><br><span class="line">117</span><br><span class="line">118</span><br><span class="line">119</span><br><span class="line">120</span><br><span class="line">121</span><br><span class="line">122</span><br><span class="line">123</span><br><span class="line">124</span><br><span class="line">125</span><br><span class="line">126</span><br><span class="line">127</span><br><span class="line">128</span><br><span class="line">129</span><br><span class="line">130</span><br><span class="line">131</span><br><span class="line">132</span><br><span class="line">133</span><br><span class="line">134</span><br><span class="line">135</span><br><span class="line">136</span><br><span class="line">137</span><br><span class="line">138</span><br><span class="line">139</span><br><span class="line">140</span><br><span class="line">141</span><br><span class="line">142</span><br><span class="line">143</span><br><span class="line">144</span><br><span class="line">145</span><br><span class="line">146</span><br><span class="line">147</span><br><span class="line">148</span><br><span class="line">149</span><br><span class="line">150</span><br><span class="line">151</span><br><span class="line">152</span><br><span class="line">153</span><br><span class="line">154</span><br><span class="line">155</span><br><span class="line">156</span><br><span class="line">157</span><br><span class="line">158</span><br><span class="line">159</span><br><span class="line">160</span><br><span class="line">161</span><br><span class="line">162</span><br><span class="line">163</span><br><span class="line">164</span><br><span class="line">165</span><br><span class="line">166</span><br><span class="line">167</span><br><span class="line">168</span><br><span class="line">169</span><br><span class="line">170</span><br><span class="line">171</span><br><span class="line">172</span><br><span class="line">173</span><br><span class="line">174</span><br><span class="line">175</span><br><span class="line">176</span><br><span class="line">177</span><br><span class="line">178</span><br><span class="line">179</span><br><span class="line">180</span><br><span class="line">181</span><br><span class="line">182</span><br><span class="line">183</span><br><span class="line">184</span><br><span class="line">185</span><br><span class="line">186</span><br><span class="line">187</span><br><span class="line">188</span><br><span class="line">189</span><br><span class="line">190</span><br><span class="line">191</span><br><span class="line">192</span><br><span class="line">193</span><br><span class="line">194</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="type">static</span> <span class="type">void</span> <span class="title">handle_stripe</span><span class="params">(<span class="keyword">struct</span> stripe_head *sh)</span></span></span><br><span class="line"><span class="function"></span>&#123;</span><br><span class="line">        <span class="comment">/* 在sync_request中设置了该标记 */</span></span><br><span class="line">        <span class="keyword">if</span> (<span class="built_in">test_bit</span>(STRIPE_SYNC_REQUESTED, &amp;sh-&gt;state)) &#123;</span><br><span class="line">                <span class="built_in">spin_lock</span>(&amp;sh-&gt;stripe_lock);</span><br><span class="line">                <span class="comment">/* 此时条带不是处理DISCARD请求 */</span></span><br><span class="line">                <span class="keyword">if</span> (!<span class="built_in">test_bit</span>(STRIPE_DISCARD, &amp;sh-&gt;state) &amp;&amp;</span><br><span class="line">                    <span class="comment">/* 清掉STRIPE_SYNC_REQUESTED标记 */</span></span><br><span class="line">                    <span class="built_in">test_and_clear_bit</span>(STRIPE_SYNC_REQUESTED, &amp;sh-&gt;state)) &#123;</span><br><span class="line">                        <span class="comment">/* 设置条带同步中标记 */</span></span><br><span class="line">                        <span class="built_in">set_bit</span>(STRIPE_SYNCING, &amp;sh-&gt;state);</span><br><span class="line">                        <span class="comment">/* 清除条带一致状态的标记 */</span></span><br><span class="line">                        <span class="built_in">clear_bit</span>(STRIPE_INSYNC, &amp;sh-&gt;state);</span><br><span class="line">                &#125;</span><br><span class="line">                <span class="built_in">spin_unlock</span>(&amp;sh-&gt;stripe_lock);</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="built_in">clear_bit</span>(STRIPE_DELAYED, &amp;sh-&gt;state);</span><br><span class="line"></span><br><span class="line">        <span class="comment">/* 解析条带状态 */</span></span><br><span class="line">        <span class="built_in">analyse_stripe</span>(sh, &amp;s);</span><br><span class="line"></span><br><span class="line">        <span class="comment">/* s.replacing为真进入handle_stripe_fill */</span></span><br><span class="line">        <span class="keyword">if</span> (s.to_read || s.non_overwrite</span><br><span class="line">            || (conf-&gt;level == <span class="number">6</span> &amp;&amp; s.to_write &amp;&amp; s.failed)</span><br><span class="line">            || (s.syncing &amp;&amp; (s.uptodate + s.compute &lt; disks))</span><br><span class="line">            || s.replacing</span><br><span class="line">            || s.expanding)</span><br><span class="line">                <span class="built_in">handle_stripe_fill</span>(sh, &amp;s, disks);</span><br><span class="line"></span><br><span class="line">        <span class="comment">/* 此时 s.locked == 0 条件不成立不会进入该if分支 */</span></span><br><span class="line">        <span class="keyword">if</span> (s.replacing &amp;&amp; s.locked == <span class="number">0</span></span><br><span class="line">            &amp;&amp; !<span class="built_in">test_bit</span>(STRIPE_INSYNC, &amp;sh-&gt;state)) &#123;</span><br><span class="line">                <span class="comment">/* Write out to replacement devices where possible */</span></span><br><span class="line">                <span class="keyword">for</span> (i = <span class="number">0</span>; i &lt; conf-&gt;raid_disks; i++)</span><br><span class="line">                        <span class="keyword">if</span> (<span class="built_in">test_bit</span>(R5_UPTODATE, &amp;sh-&gt;dev[i].flags) &amp;&amp;</span><br><span class="line">                            <span class="built_in">test_bit</span>(R5_NeedReplace, &amp;sh-&gt;dev[i].flags)) &#123;</span><br><span class="line">                                <span class="built_in">set_bit</span>(R5_WantReplace, &amp;sh-&gt;dev[i].flags);</span><br><span class="line">                                <span class="built_in">set_bit</span>(R5_LOCKED, &amp;sh-&gt;dev[i].flags);</span><br><span class="line">                                s.locked++;</span><br><span class="line">                        &#125;</span><br><span class="line">                <span class="built_in">set_bit</span>(STRIPE_INSYNC, &amp;sh-&gt;state);</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="comment">/* 此时 s.locked == 0 条件不成立不会进入该if分支 */</span></span><br><span class="line">        <span class="keyword">if</span> ((s.syncing || s.replacing) &amp;&amp; s.locked == <span class="number">0</span> &amp;&amp;</span><br><span class="line">            <span class="built_in">test_bit</span>(STRIPE_INSYNC, &amp;sh-&gt;state)) &#123;</span><br><span class="line">                <span class="built_in">md_done_sync</span>(conf-&gt;mddev, STRIPE_SECTORS, <span class="number">1</span>);</span><br><span class="line">                <span class="built_in">clear_bit</span>(STRIPE_SYNCING, &amp;sh-&gt;state);</span><br><span class="line">                <span class="keyword">if</span> (<span class="built_in">test_and_clear_bit</span>(R5_Overlap, &amp;sh-&gt;dev[sh-&gt;pd_idx].flags))</span><br><span class="line">                        <span class="built_in">wake_up</span>(&amp;conf-&gt;wait_for_overlap);</span><br><span class="line">        &#125;</span><br><span class="line"></span><br><span class="line">        <span class="comment">/* 下发读请求 */</span></span><br><span class="line">        <span class="built_in">ops_run_io</span>(sh, &amp;s);</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="type">static</span> <span class="type">void</span> <span class="title">analyse_stripe</span><span class="params">(<span class="keyword">struct</span> stripe_head *sh, <span class="keyword">struct</span> stripe_head_state *s)</span></span></span><br><span class="line"><span class="function"></span>&#123;</span><br><span class="line">        <span class="type">int</span> do_recovery = <span class="number">0</span>;</span><br><span class="line"></span><br><span class="line">        <span class="comment">/* 遍历所有条带/设备 */</span></span><br><span class="line">        <span class="built_in">rcu_read_lock</span>();</span><br><span class="line">        <span class="keyword">for</span> (i=disks; i--; ) &#123;</span><br><span class="line">                <span class="comment">/* 加入新盘的成员磁盘replacement存在但不满足</span></span><br><span class="line"><span class="comment">                 * rdev-&gt;recovery_offset &gt;= sh-&gt;sector + STRIPE_SECTORS（同步时同步进度小于sh-&gt;sector）</span></span><br><span class="line"><span class="comment">                 * 走到else分支</span></span><br><span class="line"><span class="comment">                 */</span></span><br><span class="line">                rdev = <span class="built_in">rcu_dereference</span>(conf-&gt;disks[i].replacement);</span><br><span class="line">                <span class="keyword">if</span> (rdev &amp;&amp; !<span class="built_in">test_bit</span>(Faulty, &amp;rdev-&gt;flags) &amp;&amp;</span><br><span class="line">                    rdev-&gt;recovery_offset &gt;= sh-&gt;sector + STRIPE_SECTORS &amp;&amp;</span><br><span class="line">                    !<span class="built_in">is_badblock</span>(rdev, sh-&gt;sector, STRIPE_SECTORS,</span><br><span class="line">                                 &amp;first_bad, &amp;bad_sectors))</span><br><span class="line">                        <span class="built_in">set_bit</span>(R5_ReadRepl, &amp;dev-&gt;flags);</span><br><span class="line">                <span class="keyword">else</span> &#123;</span><br><span class="line">                        <span class="keyword">if</span> (rdev)</span><br><span class="line">                                <span class="comment">/* 设置R5_NeedReplace标记 */</span></span><br><span class="line">                                <span class="built_in">set_bit</span>(R5_NeedReplace, &amp;dev-&gt;flags);</span><br><span class="line">                        rdev = <span class="built_in">rcu_dereference</span>(conf-&gt;disks[i].rdev);</span><br><span class="line">                        <span class="built_in">clear_bit</span>(R5_ReadRepl, &amp;dev-&gt;flags);</span><br><span class="line">                &#125;</span><br><span class="line"></span><br><span class="line">                <span class="comment">/* 在replacement处理中所有硬盘都是正常的，do_recovery为0，s-&gt;failed也为0 */</span></span><br><span class="line">                <span class="keyword">if</span> (!<span class="built_in">test_bit</span>(R5_Insync, &amp;dev-&gt;flags)) &#123;</span><br><span class="line">                        <span class="keyword">if</span> (s-&gt;failed &lt; <span class="number">2</span>)</span><br><span class="line">                                s-&gt;failed_num[s-&gt;failed] = i;</span><br><span class="line">                        s-&gt;failed++;</span><br><span class="line">                        <span class="keyword">if</span> (rdev &amp;&amp; !<span class="built_in">test_bit</span>(Faulty, &amp;rdev-&gt;flags))</span><br><span class="line">                                do_recovery = <span class="number">1</span>;</span><br><span class="line">                &#125;</span><br><span class="line">        &#125;</span><br><span class="line"></span><br><span class="line">        <span class="comment">/* 在handle_stripe中设置了该标记 */</span></span><br><span class="line">        <span class="keyword">if</span> (<span class="built_in">test_bit</span>(STRIPE_SYNCING, &amp;sh-&gt;state)) &#123;</span><br><span class="line">                <span class="comment">/* 条件都未成立走else分支 */</span></span><br><span class="line">                <span class="keyword">if</span> (do_recovery ||</span><br><span class="line">                    sh-&gt;sector &gt;= conf-&gt;mddev-&gt;recovery_cp ||</span><br><span class="line">                    <span class="built_in">test_bit</span>(MD_RECOVERY_REQUESTED, &amp;(conf-&gt;mddev-&gt;recovery)))</span><br><span class="line">                        s-&gt;syncing = <span class="number">1</span>;</span><br><span class="line">                <span class="keyword">else</span></span><br><span class="line">                        s-&gt;replacing = <span class="number">1</span>;</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="built_in">rcu_read_unlock</span>();</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="type">static</span> <span class="type">void</span> <span class="title">handle_stripe_fill</span><span class="params">(<span class="keyword">struct</span> stripe_head *sh,</span></span></span><br><span class="line"><span class="params"><span class="function">                               <span class="keyword">struct</span> stripe_head_state *s,</span></span></span><br><span class="line"><span class="params"><span class="function">                               <span class="type">int</span> disks)</span></span></span><br><span class="line"><span class="function"></span>&#123;</span><br><span class="line">        <span class="type">int</span> i;</span><br><span class="line"></span><br><span class="line">        <span class="comment">/* 未设置条带状态进入fetch_block */</span></span><br><span class="line">        <span class="keyword">if</span> (!<span class="built_in">test_bit</span>(STRIPE_COMPUTE_RUN, &amp;sh-&gt;state) &amp;&amp; !sh-&gt;check_state &amp;&amp;</span><br><span class="line">            !sh-&gt;reconstruct_state)</span><br><span class="line">                <span class="keyword">for</span> (i = disks; i--; )</span><br><span class="line">                        <span class="keyword">if</span> (<span class="built_in">fetch_block</span>(sh, s, i, disks))</span><br><span class="line">                                <span class="keyword">break</span>;</span><br><span class="line">        <span class="built_in">set_bit</span>(STRIPE_HANDLE, &amp;sh-&gt;state);</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="type">static</span> <span class="type">int</span> <span class="title">fetch_block</span><span class="params">(<span class="keyword">struct</span> stripe_head *sh, <span class="keyword">struct</span> stripe_head_state *s,</span></span></span><br><span class="line"><span class="params"><span class="function">                       <span class="type">int</span> disk_idx, <span class="type">int</span> disks)</span></span></span><br><span class="line"><span class="function"></span>&#123;</span><br><span class="line">        <span class="keyword">struct</span> <span class="title class_">r5dev</span> *dev = &amp;sh-&gt;dev[disk_idx];</span><br><span class="line">        <span class="keyword">struct</span> <span class="title class_">r5dev</span> *fdev[<span class="number">2</span>] = &#123; &amp;sh-&gt;dev[s-&gt;failed_num[<span class="number">0</span>]],</span><br><span class="line">                                  &amp;sh-&gt;dev[s-&gt;failed_num[<span class="number">1</span>]] &#125;;</span><br><span class="line"></span><br><span class="line">        <span class="comment">/* 此时所有条带/设备都未发起请求且未包含最新数据 */</span></span><br><span class="line">        <span class="keyword">if</span> (!<span class="built_in">test_bit</span>(R5_LOCKED, &amp;dev-&gt;flags) &amp;&amp;</span><br><span class="line">            !<span class="built_in">test_bit</span>(R5_UPTODATE, &amp;dev-&gt;flags) &amp;&amp;</span><br><span class="line">            (dev-&gt;toread ||</span><br><span class="line">             (dev-&gt;towrite &amp;&amp; !<span class="built_in">test_bit</span>(R5_OVERWRITE, &amp;dev-&gt;flags)) ||</span><br><span class="line">             s-&gt;syncing || s-&gt;expanding ||</span><br><span class="line">             <span class="comment">/* want_replace()函数中会判断disk_idx对应的成员磁盘是否有replacemenet且</span></span><br><span class="line"><span class="comment">              * 条带起始位置大于等于replacement重构位置返回1</span></span><br><span class="line"><span class="comment">              * 在replacing过程中设置了replacement的成员磁盘进入if</span></span><br><span class="line"><span class="comment">              */</span></span><br><span class="line">             (s-&gt;replacing &amp;&amp; <span class="built_in">want_replace</span>(sh, disk_idx)) ||</span><br><span class="line">             (s-&gt;failed &gt;= <span class="number">1</span> &amp;&amp; fdev[<span class="number">0</span>]-&gt;toread) ||</span><br><span class="line">             (s-&gt;failed &gt;= <span class="number">2</span> &amp;&amp; fdev[<span class="number">1</span>]-&gt;toread) ||</span><br><span class="line">             (sh-&gt;raid_conf-&gt;level &lt;= <span class="number">5</span> &amp;&amp; s-&gt;failed &amp;&amp; fdev[<span class="number">0</span>]-&gt;towrite &amp;&amp;</span><br><span class="line">              !<span class="built_in">test_bit</span>(R5_OVERWRITE, &amp;fdev[<span class="number">0</span>]-&gt;flags)) ||</span><br><span class="line">             (sh-&gt;raid_conf-&gt;level == <span class="number">6</span> &amp;&amp; s-&gt;failed &amp;&amp; s-&gt;to_write))) &#123;</span><br><span class="line">                <span class="comment">/* we would like to get this block, possibly by computing it,</span></span><br><span class="line"><span class="comment">                 * otherwise read it if the backing disk is insync</span></span><br><span class="line"><span class="comment">                 */</span></span><br><span class="line">                <span class="built_in">BUG_ON</span>(<span class="built_in">test_bit</span>(R5_Wantcompute, &amp;dev-&gt;flags));</span><br><span class="line">                <span class="built_in">BUG_ON</span>(<span class="built_in">test_bit</span>(R5_Wantread, &amp;dev-&gt;flags));</span><br><span class="line">                <span class="comment">/* 对设置了replacement的成员磁盘下发读请求 */</span></span><br><span class="line">                <span class="keyword">if</span> (<span class="built_in">test_bit</span>(R5_Insync, &amp;dev-&gt;flags)) &#123;</span><br><span class="line">                        <span class="built_in">set_bit</span>(R5_LOCKED, &amp;dev-&gt;flags);</span><br><span class="line">                        <span class="built_in">set_bit</span>(R5_Wantread, &amp;dev-&gt;flags);</span><br><span class="line">                        <span class="comment">/* 自增locked计数 */</span></span><br><span class="line">                        s-&gt;locked++;</span><br><span class="line">                &#125;</span><br><span class="line">        &#125;</span><br><span class="line"></span><br><span class="line">        <span class="keyword">return</span> <span class="number">0</span>;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="type">static</span> <span class="type">void</span> <span class="title">ops_run_io</span><span class="params">(<span class="keyword">struct</span> stripe_head *sh, <span class="keyword">struct</span> stripe_head_state *s)</span></span></span><br><span class="line"><span class="function"></span>&#123;</span><br><span class="line">        <span class="comment">/* 遍历所有条带/设备 */</span></span><br><span class="line">        <span class="keyword">for</span> (i = disks; i--; ) &#123;</span><br><span class="line">                <span class="comment">/* 对设置了读标记的下发读请求 */</span></span><br><span class="line">                <span class="keyword">if</span> (<span class="built_in">test_and_clear_bit</span>(R5_Wantread, &amp;sh-&gt;dev[i].flags))</span><br><span class="line">                        rw = READ;</span><br><span class="line">                <span class="comment">/* 跳过其他不需要读的设备 */</span></span><br><span class="line">                <span class="keyword">else</span></span><br><span class="line">                        <span class="keyword">continue</span>;</span><br><span class="line"></span><br><span class="line">                <span class="keyword">if</span> (rdev) &#123;</span><br><span class="line">                        <span class="built_in">bio_reset</span>(bi);</span><br><span class="line">                        bi-&gt;bi_bdev = rdev-&gt;bdev;</span><br><span class="line">                        bi-&gt;bi_rw = rw;</span><br><span class="line">                        bi-&gt;bi_end_io = raid5_end_read_request;</span><br><span class="line">                        bi-&gt;bi_private = sh;</span><br><span class="line"></span><br><span class="line">                        <span class="built_in">atomic_inc</span>(&amp;sh-&gt;count);</span><br><span class="line">                        <span class="keyword">if</span> (<span class="built_in">use_new_offset</span>(conf, sh))</span><br><span class="line">                                bi-&gt;bi_sector = (sh-&gt;sector + rdev-&gt;new_data_offset);</span><br><span class="line">                        <span class="keyword">else</span></span><br><span class="line">                                bi-&gt;bi_sector = (sh-&gt;sector + rdev-&gt;data_offset);</span><br><span class="line">                        <span class="keyword">if</span> (<span class="built_in">test_bit</span>(R5_ReadNoMerge, &amp;sh-&gt;dev[i].flags))</span><br><span class="line">                                bi-&gt;bi_rw |= REQ_FLUSH;</span><br><span class="line"></span><br><span class="line">                        bi-&gt;bi_vcnt = <span class="number">1</span>;</span><br><span class="line">                        bi-&gt;bi_io_vec[<span class="number">0</span>].bv_len = STRIPE_SIZE;</span><br><span class="line">                        bi-&gt;bi_io_vec[<span class="number">0</span>].bv_offset = <span class="number">0</span>;</span><br><span class="line">                        bi-&gt;bi_size = STRIPE_SIZE;</span><br><span class="line">                        </span><br><span class="line">                        <span class="comment">/* 提交bio */</span></span><br><span class="line">                        <span class="built_in">generic_make_request</span>(bi);</span><br><span class="line">                &#125;</span><br><span class="line">        &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<h4 id="2-3-2-下发写请求"><a href="#2-3-2-下发写请求" class="headerlink" title="2.3.2. 下发写请求"></a>2.3.2. 下发写请求</h4><p>函数调用关系：</p>
+<figure class="highlight c++"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">handle_stripe</span>()</span><br><span class="line"> \<span class="function">_ <span class="title">analyse_stripe</span><span class="params">()</span></span></span><br><span class="line"><span class="function"> \_ <span class="title">ops_run_io</span><span class="params">()</span></span></span><br></pre></td></tr></table></figure>
+
+<p>代码逻辑如下：</p>
+<figure class="highlight c++"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br><span class="line">78</span><br><span class="line">79</span><br><span class="line">80</span><br><span class="line">81</span><br><span class="line">82</span><br><span class="line">83</span><br><span class="line">84</span><br><span class="line">85</span><br><span class="line">86</span><br><span class="line">87</span><br><span class="line">88</span><br><span class="line">89</span><br><span class="line">90</span><br><span class="line">91</span><br><span class="line">92</span><br><span class="line">93</span><br><span class="line">94</span><br><span class="line">95</span><br><span class="line">96</span><br><span class="line">97</span><br><span class="line">98</span><br><span class="line">99</span><br><span class="line">100</span><br><span class="line">101</span><br><span class="line">102</span><br><span class="line">103</span><br><span class="line">104</span><br><span class="line">105</span><br><span class="line">106</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="type">static</span> <span class="type">void</span> <span class="title">handle_stripe</span><span class="params">(<span class="keyword">struct</span> stripe_head *sh)</span></span></span><br><span class="line"><span class="function"></span>&#123;</span><br><span class="line">        <span class="comment">/* 解析条带状态 */</span></span><br><span class="line">        <span class="built_in">analyse_stripe</span>(sh, &amp;s);</span><br><span class="line"></span><br><span class="line">        <span class="comment">/* 在fetch_block中设置了replacement的条带已经是最新数据</span></span><br><span class="line"><span class="comment">         * R5_UPTODATE条件为真，所以不会设置任何新的需要读取</span></span><br><span class="line"><span class="comment">         */</span></span><br><span class="line">        <span class="keyword">if</span> (s.to_read || s.non_overwrite</span><br><span class="line">                 || (conf-&gt;level == <span class="number">6</span> &amp;&amp; s.to_write &amp;&amp; s.failed)</span><br><span class="line">                 || (s.syncing &amp;&amp; (s.uptodate + s.compute &lt; disks))</span><br><span class="line">                 || s.replacing</span><br><span class="line">                 || s.expanding)</span><br><span class="line">                <span class="built_in">handle_stripe_fill</span>(sh, &amp;s, disks);</span><br><span class="line"></span><br><span class="line">        <span class="comment">/* replacing在analyse_stripe设置</span></span><br><span class="line"><span class="comment">         * 未下发新的读请求locked为真</span></span><br><span class="line"><span class="comment">         * 条带同步状态再第一轮中清除</span></span><br><span class="line"><span class="comment">         * 进入if</span></span><br><span class="line"><span class="comment">         */</span></span><br><span class="line">        <span class="keyword">if</span> (s.replacing &amp;&amp; s.locked == <span class="number">0</span></span><br><span class="line">                 &amp;&amp; !<span class="built_in">test_bit</span>(STRIPE_INSYNC, &amp;sh-&gt;state)) &#123;</span><br><span class="line">                <span class="keyword">for</span> (i = <span class="number">0</span>; i &lt; conf-&gt;raid_disks; i++)</span><br><span class="line">                        <span class="comment">/* 读成功后R5_UPTODATE为真，R5_WantReplace在analyse_stripe中设置 */</span></span><br><span class="line">                        <span class="keyword">if</span> (<span class="built_in">test_bit</span>(R5_UPTODATE, &amp;sh-&gt;dev[i].flags) &amp;&amp;</span><br><span class="line">                                 <span class="built_in">test_bit</span>(R5_NeedReplace, &amp;sh-&gt;dev[i].flags)) &#123;</span><br><span class="line">                                <span class="comment">/* 设置R5_WantReplace标记在下发写请求时判断 */</span></span><br><span class="line">                                <span class="built_in">set_bit</span>(R5_WantReplace, &amp;sh-&gt;dev[i].flags);</span><br><span class="line">                                <span class="comment">/* 设置R5_LOCKED标记表明条带/设备准备调度IO */</span></span><br><span class="line">                                <span class="built_in">set_bit</span>(R5_LOCKED, &amp;sh-&gt;dev[i].flags);</span><br><span class="line">                                <span class="comment">/* 自增locked计数 */</span></span><br><span class="line">                                s.locked++;</span><br><span class="line">                        &#125;</span><br><span class="line">                <span class="comment">/* 将条带设置为同步状态 */</span></span><br><span class="line">                <span class="built_in">set_bit</span>(STRIPE_INSYNC, &amp;sh-&gt;state);</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="comment">/* 上个if中locked自增不进入if */</span></span><br><span class="line">        <span class="keyword">if</span> ((s.syncing || s.replacing) &amp;&amp; s.locked == <span class="number">0</span> &amp;&amp;</span><br><span class="line">                 <span class="built_in">test_bit</span>(STRIPE_INSYNC, &amp;sh-&gt;state)) &#123;</span><br><span class="line">                <span class="built_in">md_done_sync</span>(conf-&gt;mddev, STRIPE_SECTORS, <span class="number">1</span>);</span><br><span class="line">                <span class="built_in">clear_bit</span>(STRIPE_SYNCING, &amp;sh-&gt;state);</span><br><span class="line">                <span class="keyword">if</span> (<span class="built_in">test_and_clear_bit</span>(R5_Overlap, &amp;sh-&gt;dev[sh-&gt;pd_idx].flags))</span><br><span class="line">                        <span class="built_in">wake_up</span>(&amp;conf-&gt;wait_for_overlap);</span><br><span class="line">        &#125;</span><br><span class="line"></span><br><span class="line">        <span class="comment">/* 下发写请求 */</span></span><br><span class="line">        <span class="built_in">ops_run_io</span>(sh, &amp;s);</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="comment">/* 和上轮一轮不在赘述 */</span></span><br><span class="line"><span class="built_in">analyse_stripe</span>()</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="type">static</span> <span class="type">void</span> <span class="title">ops_run_io</span><span class="params">(<span class="keyword">struct</span> stripe_head *sh, <span class="keyword">struct</span> stripe_head_state *s)</span></span></span><br><span class="line"><span class="function"></span>&#123;</span><br><span class="line">        <span class="keyword">struct</span> <span class="title class_">r5conf</span> *conf = sh-&gt;raid_conf;</span><br><span class="line">        <span class="type">int</span> i, disks = sh-&gt;disks;</span><br><span class="line"></span><br><span class="line">        <span class="built_in">might_sleep</span>();</span><br><span class="line"></span><br><span class="line">        <span class="comment">/* 遍历所有条带/设备 */</span></span><br><span class="line">        <span class="keyword">for</span> (i = disks; i--; ) &#123;</span><br><span class="line">                <span class="keyword">if</span> (<span class="built_in">test_and_clear_bit</span>(R5_WantReplace, &amp;sh-&gt;dev[i].flags)) &#123;</span><br><span class="line">                        rw = WRITE;</span><br><span class="line">                        replace_only = <span class="number">1</span>;</span><br><span class="line">                &#125;</span><br><span class="line"></span><br><span class="line">                bi = &amp;sh-&gt;dev[i].req;</span><br><span class="line">                rbi = &amp;sh-&gt;dev[i].rreq; <span class="comment">/* For writing to replacement */</span></span><br><span class="line"></span><br><span class="line">                <span class="built_in">rcu_read_lock</span>();</span><br><span class="line">                rrdev = <span class="built_in">rcu_dereference</span>(conf-&gt;disks[i].replacement);</span><br><span class="line">                <span class="built_in">smp_mb</span>(); <span class="comment">/* Ensure that if rrdev is NULL, rdev won&#x27;t be */</span></span><br><span class="line">                rdev = <span class="built_in">rcu_dereference</span>(conf-&gt;disks[i].rdev);</span><br><span class="line"></span><br><span class="line">                <span class="keyword">if</span> (rw &amp; WRITE) &#123;</span><br><span class="line">                        <span class="comment">/* 将rdev标空后只能使用rrdev */</span></span><br><span class="line">                        <span class="keyword">if</span> (replace_only)</span><br><span class="line">                                rdev = <span class="literal">NULL</span>;</span><br><span class="line">                &#125;</span><br><span class="line">                <span class="built_in">rcu_read_unlock</span>();</span><br><span class="line"></span><br><span class="line">                <span class="comment">/* 使用rbi向rrdev下发写请求 */</span></span><br><span class="line">                <span class="keyword">if</span> (rrdev) &#123;</span><br><span class="line">                        <span class="built_in">set_bit</span>(STRIPE_IO_STARTED, &amp;sh-&gt;state);</span><br><span class="line"></span><br><span class="line">                        <span class="built_in">bio_reset</span>(rbi);</span><br><span class="line">                        rbi-&gt;bi_bdev = rrdev-&gt;bdev;</span><br><span class="line">                        rbi-&gt;bi_rw = rw;</span><br><span class="line">                        <span class="built_in">BUG_ON</span>(!(rw &amp; WRITE));</span><br><span class="line">                        rbi-&gt;bi_end_io = raid5_end_write_request;</span><br><span class="line">                        rbi-&gt;bi_private = sh;</span><br><span class="line"></span><br><span class="line">                        <span class="built_in">atomic_inc</span>(&amp;sh-&gt;count);</span><br><span class="line">                        <span class="keyword">if</span> (<span class="built_in">use_new_offset</span>(conf, sh))</span><br><span class="line">                                rbi-&gt;bi_sector = (sh-&gt;sector + rrdev-&gt;new_data_offset);</span><br><span class="line">                        <span class="keyword">else</span></span><br><span class="line">                                rbi-&gt;bi_sector = (sh-&gt;sector + rrdev-&gt;data_offset);</span><br><span class="line">                        rbi-&gt;bi_vcnt = <span class="number">1</span>;</span><br><span class="line">                        rbi-&gt;bi_io_vec[<span class="number">0</span>].bv_len = STRIPE_SIZE;</span><br><span class="line">                        rbi-&gt;bi_io_vec[<span class="number">0</span>].bv_offset = <span class="number">0</span>;</span><br><span class="line">                        rbi-&gt;bi_size = STRIPE_SIZE;</span><br><span class="line"></span><br><span class="line">                        <span class="built_in">generic_make_request</span>(rbi);</span><br><span class="line">                &#125;</span><br><span class="line">        &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<h4 id="2-3-3-完成"><a href="#2-3-3-完成" class="headerlink" title="2.3.3. 完成"></a>2.3.3. 完成</h4><p>函数调用关系：</p>
+<figure class="highlight c++"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">handle_stripe</span>()</span><br><span class="line"> \<span class="function">_ <span class="title">md_done_sync</span><span class="params">()</span></span></span><br></pre></td></tr></table></figure>
+
+<p>代码逻辑如下：</p>
+<figure class="highlight c++"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="type">static</span> <span class="type">void</span> <span class="title">handle_stripe</span><span class="params">(<span class="keyword">struct</span> stripe_head *sh)</span></span></span><br><span class="line"><span class="function"></span>&#123;</span><br><span class="line">        <span class="comment">/* 解析条带状态 */</span></span><br><span class="line">        <span class="built_in">analyse_stripe</span>(sh, &amp;s);</span><br><span class="line"></span><br><span class="line">        <span class="comment">/* 在fetch_block中设置了replacement的条带已经是最新数据</span></span><br><span class="line"><span class="comment">         * R5_UPTODATE条件为真，所以不会设置任何新的需要读取</span></span><br><span class="line"><span class="comment">         */</span></span><br><span class="line">        <span class="keyword">if</span> (s.to_read || s.non_overwrite</span><br><span class="line">                 || (conf-&gt;level == <span class="number">6</span> &amp;&amp; s.to_write &amp;&amp; s.failed)</span><br><span class="line">                 || (s.syncing &amp;&amp; (s.uptodate + s.compute &lt; disks))</span><br><span class="line">                 || s.replacing</span><br><span class="line">                 || s.expanding)</span><br><span class="line">                <span class="built_in">handle_stripe_fill</span>(sh, &amp;s, disks);</span><br><span class="line"></span><br><span class="line">        <span class="comment">/* replacing在analyse_stripe设置</span></span><br><span class="line"><span class="comment">         * 未下发新的读请求locked为真</span></span><br><span class="line"><span class="comment">         * STRIPE_INSYNC在上轮处理中设置，本轮不在进入if</span></span><br><span class="line"><span class="comment">         */</span></span><br><span class="line">        <span class="keyword">if</span> (s.replacing &amp;&amp; s.locked == <span class="number">0</span></span><br><span class="line">            &amp;&amp; !<span class="built_in">test_bit</span>(STRIPE_INSYNC, &amp;sh-&gt;state)) &#123;</span><br><span class="line">                <span class="comment">/* Write out to replacement devices where possible */</span></span><br><span class="line">                <span class="keyword">for</span> (i = <span class="number">0</span>; i &lt; conf-&gt;raid_disks; i++)</span><br><span class="line">                        <span class="keyword">if</span> (<span class="built_in">test_bit</span>(R5_UPTODATE, &amp;sh-&gt;dev[i].flags) &amp;&amp;</span><br><span class="line">                            <span class="built_in">test_bit</span>(R5_NeedReplace, &amp;sh-&gt;dev[i].flags)) &#123;</span><br><span class="line">                                <span class="built_in">set_bit</span>(R5_WantReplace, &amp;sh-&gt;dev[i].flags);</span><br><span class="line">                                <span class="built_in">set_bit</span>(R5_LOCKED, &amp;sh-&gt;dev[i].flags);</span><br><span class="line">                                s.locked++;</span><br><span class="line">                        &#125;</span><br><span class="line">                <span class="built_in">set_bit</span>(STRIPE_INSYNC, &amp;sh-&gt;state);</span><br><span class="line">        &#125;</span><br><span class="line"></span><br><span class="line">        <span class="comment">/* replacing、locked、STRIPE_INSYNC条件都成立 */</span></span><br><span class="line">        <span class="keyword">if</span> ((s.syncing || s.replacing) &amp;&amp; s.locked == <span class="number">0</span> &amp;&amp;</span><br><span class="line">                 <span class="built_in">test_bit</span>(STRIPE_INSYNC, &amp;sh-&gt;state)) &#123;</span><br><span class="line">                <span class="built_in">md_done_sync</span>(conf-&gt;mddev, STRIPE_SECTORS, <span class="number">1</span>);</span><br><span class="line">                <span class="built_in">clear_bit</span>(STRIPE_SYNCING, &amp;sh-&gt;state);</span><br><span class="line">        &#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="type">void</span> <span class="title">md_done_sync</span><span class="params">(<span class="keyword">struct</span> mddev *mddev, <span class="type">int</span> blocks, <span class="type">int</span> ok)</span></span></span><br><span class="line"><span class="function"></span>&#123;</span><br><span class="line">        <span class="comment">/* 自增完成计数 */</span></span><br><span class="line">        <span class="built_in">atomic_sub</span>(blocks, &amp;mddev-&gt;recovery_active);</span><br><span class="line">        <span class="comment">/* 通知同步前程继续进行 */</span></span><br><span class="line">        <span class="built_in">wake_up</span>(&amp;mddev-&gt;recovery_wait);</span><br><span class="line">        <span class="keyword">if</span> (!ok) &#123;</span><br><span class="line">                <span class="built_in">set_bit</span>(MD_RECOVERY_INTR, &amp;mddev-&gt;recovery);</span><br><span class="line">                <span class="built_in">set_bit</span>(MD_RECOVERY_ERROR, &amp;mddev-&gt;recovery);</span><br><span class="line">                <span class="built_in">md_wakeup_thread</span>(mddev-&gt;thread);</span><br><span class="line">        &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>至此一个条带的同步流程分析完毕</p>
+
+    </div>
+
+    
+    
+    
+
+      <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/raid5/" rel="tag"># raid5</a>
+          </div>
+
+        
+
+
+        
+    <div class="post-nav">
+      <div class="post-nav-item">
+    <a href="/2024/07/26/raid5-recovery/" rel="prev" title="RAID5 I/O 处理之重构代码详解">
+      <i class="fa fa-chevron-left"></i> RAID5 I/O 处理之重构代码详解
+    </a></div>
+      <div class="post-nav-item">
+    <a href="/2024/07/27/linux-block-deadline/" rel="next" title="Linux Block 模块之 deadline 调度算法代码解析">
+      Linux Block 模块之 deadline 调度算法代码解析 <i class="fa fa-chevron-right"></i>
+    </a></div>
+    </div>
+      </footer>
+    
+  </article>
+  
+  
+  
+
+
+
+          </div>
+          
+
+<script>
+  window.addEventListener('tabs:register', () => {
+    let { activeClass } = CONFIG.comments;
+    if (CONFIG.comments.storage) {
+      activeClass = localStorage.getItem('comments_active') || activeClass;
+    }
+    if (activeClass) {
+      let activeTab = document.querySelector(`a[href="#comment-${activeClass}"]`);
+      if (activeTab) {
+        activeTab.click();
+      }
+    }
+  });
+  if (CONFIG.comments.storage) {
+    window.addEventListener('tabs:click', event => {
+      if (!event.target.matches('.tabs-comment .tab-content .tab-pane')) return;
+      let commentClass = event.target.classList[1];
+      localStorage.setItem('comments_active', commentClass);
+    });
+  }
+</script>
+
+        </div>
+          
+  
+  <div class="toggle sidebar-toggle">
+    <span class="toggle-line toggle-line-first"></span>
+    <span class="toggle-line toggle-line-middle"></span>
+    <span class="toggle-line toggle-line-last"></span>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <ul class="sidebar-nav motion-element">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <!--noindex-->
+      <div class="post-toc-wrap sidebar-panel">
+          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#1-%E4%BD%9C%E7%94%A8"><span class="nav-text">1. 作用</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#2-%E4%BB%A3%E7%A0%81%E8%A7%A3%E6%9E%90"><span class="nav-text">2. 代码解析</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#2-1-%E9%9C%80%E6%9B%BF%E6%8D%A2%E8%AE%BE%E7%BD%AE"><span class="nav-text">2.1. 需替换设置</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-2-%E5%8A%A0%E5%85%A5%E6%96%B0%E7%9B%98"><span class="nav-text">2.2. 加入新盘</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-3-%E6%9D%A1%E5%B8%A6%E5%A4%84%E7%90%86"><span class="nav-text">2.3. 条带处理</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#2-3-1-%E4%B8%8B%E5%8F%91%E8%AF%BB%E8%AF%B7%E6%B1%82"><span class="nav-text">2.3.1. 下发读请求</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2-3-2-%E4%B8%8B%E5%8F%91%E5%86%99%E8%AF%B7%E6%B1%82"><span class="nav-text">2.3.2. 下发写请求</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2-3-3-%E5%AE%8C%E6%88%90"><span class="nav-text">2.3.3. 完成</span></a></li></ol></li></ol></li></ol></div>
+      </div>
+      <!--/noindex-->
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+    <img class="site-author-image" itemprop="image" alt="Jrchyang"
+      src="/images/avatar.jpg">
+  <p class="site-author-name" itemprop="name">Jrchyang</p>
+  <div class="site-description" itemprop="description"></div>
+</div>
+<div class="site-state-wrap motion-element">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+          <a href="/archives/">
+        
+          <span class="site-state-item-count">8</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+        <span class="site-state-item-count">3</span>
+        <span class="site-state-item-name">分类</span>
+      </div>
+      <div class="site-state-item site-state-tags">
+        <span class="site-state-item-count">3</span>
+        <span class="site-state-item-name">标签</span>
+      </div>
+  </nav>
+</div>
+  <div class="links-of-author motion-element">
+      <span class="links-of-author-item">
+        <a href="https://github.com/jrchyang" title="GitHub → https:&#x2F;&#x2F;github.com&#x2F;jrchyang" rel="noopener" target="_blank"><i class="fab fa-github fa-fw"></i>GitHub</a>
+      </span>
+      <span class="links-of-author-item">
+        <a href="mailto:yujrchyang@gmail.com" title="E-Mail → mailto:yujrchyang@gmail.com" rel="noopener" target="_blank"><i class="fa fa-envelope fa-fw"></i>E-Mail</a>
+      </span>
+  </div>
+
+
+
+      </div>
+
+    </div>
+  </aside>
+  <div id="sidebar-dimmer"></div>
+
+
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        
+
+        
+
+<div class="copyright">
+  
+  &copy; 
+  <span itemprop="copyrightYear">2024</span>
+  <span class="with-love">
+    <i class="fa fa-heart"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">Jrchyang</span>
+</div>
+  <div class="powered-by">由 <a href="https://hexo.io/" class="theme-link" rel="noopener" target="_blank">Hexo</a> & <a href="https://theme-next.org/" class="theme-link" rel="noopener" target="_blank">NexT.Gemini</a> 强力驱动
+  </div>
+
+        
+
+
+
+
+
+
+
+
+      </div>
+    </footer>
+  </div>
+
+  
+  <script src="/lib/anime.min.js"></script>
+  <script src="/lib/velocity/velocity.min.js"></script>
+  <script src="/lib/velocity/velocity.ui.min.js"></script>
+
+<script src="/js/utils.js"></script>
+
+<script src="/js/motion.js"></script>
+
+
+<script src="/js/schemes/pisces.js"></script>
+
+
+<script src="/js/next-boot.js"></script>
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+  
+
+</body>
+</html>

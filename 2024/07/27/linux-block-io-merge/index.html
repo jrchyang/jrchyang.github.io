@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 7.3.0">
+<meta name="google-site-verification" content="HcM0QD3nDqJPL_6jKgULvhwh22wnrPX3x9SbgNm3dA0" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+<link rel="stylesheet" href="https://fonts.loli.ne/css?family=Lato:300,300italic,400,400italic,700,700italic&display=swap&subset=latin,latin-ext">
+<link rel="stylesheet" href="/lib/font-awesome/css/all.min.css">
+
+<script id="hexo-configurations">
+    var NexT = window.NexT || {};
+    var CONFIG = {"hostname":"jrchyang.github.io","root":"/","scheme":"Gemini","version":"7.8.0","exturl":false,"sidebar":{"position":"left","display":"post","padding":18,"offset":12,"onmobile":false},"copycode":{"enable":false,"show_result":false,"style":null},"back2top":{"enable":true,"sidebar":false,"scrollpercent":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":false,"trigger":"auto","top_n_per_article":1,"unescape":false,"preload":false},"motion":{"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}}};
+  </script>
+
+  <meta name="description" content="详细分析 Linux Block 层 I&#x2F;O 合并的代码">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Linux Block 模块之 I&#x2F;O 合并代码解析">
+<meta property="og:url" content="https://jrchyang.github.io/2024/07/27/linux-block-io-merge/index.html">
+<meta property="og:site_name" content="Jrchyang">
+<meta property="og:description" content="详细分析 Linux Block 层 I&#x2F;O 合并的代码">
+<meta property="og:locale" content="zh_CN">
+<meta property="article:published_time" content="2024-07-27T05:20:59.000Z">
+<meta property="article:modified_time" content="2024-08-06T13:40:13.982Z">
+<meta property="article:author" content="Jrchyang">
+<meta property="article:tag" content="block">
+<meta name="twitter:card" content="summary">
+
+<link rel="canonical" href="https://jrchyang.github.io/2024/07/27/linux-block-io-merge/">
+
+
+<script id="page-configurations">
+  // https://hexo.io/docs/variables.html
+  CONFIG.page = {
+    sidebar: "",
+    isHome : false,
+    isPost : true,
+    lang   : 'zh-CN'
+  };
+</script>
+
+  <title>Linux Block 模块之 I/O 合并代码解析 | Jrchyang</title>
+  
+
+
+  <script>
+    var _hmt = _hmt || [];
+    (function() {
+      var hm = document.createElement("script");
+      hm.src = "https://hm.baidu.com/hm.js?78ac82b416bd1dcfdd98af4007d72b77";
+      var s = document.getElementsByTagName("script")[0];
+      s.parentNode.insertBefore(hm, s);
+    })();
+  </script>
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-header { opacity: initial; }
+
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="container use-motion">
+    <div class="headband"></div>
+
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏">
+      <span class="toggle-line toggle-line-first"></span>
+      <span class="toggle-line toggle-line-middle"></span>
+      <span class="toggle-line toggle-line-last"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <span class="logo-line-before"><i></i></span>
+      <h1 class="site-title">Jrchyang</h1>
+      <span class="logo-line-after"><i></i></span>
+    </a>
+      <p class="site-subtitle" itemprop="description">好好学习 天天向上</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+    </div>
+  </div>
+</div>
+
+
+
+
+<nav class="site-nav">
+  <ul id="menu" class="main-menu menu">
+        <li class="menu-item menu-item-home">
+
+    <a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a>
+
+  </li>
+        <li class="menu-item menu-item-categories">
+
+    <a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>分类</a>
+
+  </li>
+        <li class="menu-item menu-item-tags">
+
+    <a href="/tags/" rel="section"><i class="fa fa-tags fa-fw"></i>标签</a>
+
+  </li>
+        <li class="menu-item menu-item-archives">
+
+    <a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a>
+
+  </li>
+  </ul>
+</nav>
+
+
+
+
+</div>
+    </header>
+
+    
+  <div class="back-to-top">
+    <i class="fa fa-arrow-up"></i>
+    <span>0%</span>
+  </div>
+
+
+    <main class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+
+          <div class="content post posts-expand">
+            
+
+    
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://jrchyang.github.io/2024/07/27/linux-block-io-merge/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.jpg">
+      <meta itemprop="name" content="Jrchyang">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="Jrchyang">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          Linux Block 模块之 I/O 合并代码解析
+        </h1>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-calendar"></i>
+              </span>
+              <span class="post-meta-item-text">发表于</span>
+
+              <time title="创建时间：2024-07-27 13:20:59" itemprop="dateCreated datePublished" datetime="2024-07-27T13:20:59+08:00">2024-07-27</time>
+            </span>
+              <span class="post-meta-item">
+                <span class="post-meta-item-icon">
+                  <i class="far fa-calendar-check"></i>
+                </span>
+                <span class="post-meta-item-text">更新于</span>
+                <time title="修改时间：2024-08-06 21:40:13" itemprop="dateModified" datetime="2024-08-06T21:40:13+08:00">2024-08-06</time>
+              </span>
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-folder"></i>
+              </span>
+              <span class="post-meta-item-text">分类于</span>
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/Linux-Block/" itemprop="url" rel="index"><span itemprop="name">Linux Block</span></a>
+                </span>
+            </span>
+
+          
+            <div class="post-description">详细分析 Linux Block 层 I/O 合并的代码</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+        <h2 id="1-I-O-路径"><a href="#1-I-O-路径" class="headerlink" title="1. I&#x2F;O 路径"></a>1. I&#x2F;O 路径</h2><p>从内核角度看，进程产生的 I&#x2F;O 路径主要有三条：</p>
+<ul>
+<li>缓存 I&#x2F;O：系统绝大部分 I&#x2F;O 走的这种形式，充分利用文件系统层的 page cache 所带来的优势。应用程序产生的 I&#x2F;O 经系统调用落入 page cache 之后便可以直接返回，page cache 中的缓存数据由内核回写线程在适当时机同步到底层的存储介质上，当然应用程序也可以主动发起回写过程（如 fsync 系统调用）来确保数据尽快同步打扫存储介质上，从而避免系统崩溃或者掉电带来的数据不一致性；</li>
+<li>非缓存 I&#x2F;O（带蓄流）：这种 I&#x2F;O 绕过文件系统层的 cache。用户在打开要读写的文件的时候需要加上 <code>O_DIRECT</code> 标记，意为直接 I&#x2F;O，不让文件系统的 page cache 介入。从用户角度而言，应用程序能直接控制的 I&#x2F;O 形式除了上面提到的缓存 I&#x2F;O，剩下的 I&#x2F;O 都走这种形式，就算打开文件时加上了 <code>O_SYNC</code> 标记，最终产生的 I&#x2F;O 也会进入蓄流链表。如果应用程序在用户空间自己做了缓存，那么就可以使用这种 I&#x2F;O 方式，常见的如数据库应用；</li>
+<li>非缓存 I&#x2F;O（不带蓄流）：内核通用快层的蓄流机制只给内核空间提供了接口来控制 I&#x2F;O 请求是否蓄流，用户空间进程无法控制提交的 I&#x2F;O 请求进入通用快层的时候是否蓄流。严格的说，用户空间直接产生的 I&#x2F;O 都会走蓄流路径，哪怕是提交 I&#x2F;O 的时候加上了 <code>O_DIRECT</code> 和 <code>O_SYNC</code> 标记。用户空间间接产生的 I&#x2F;O，如文件系统日志数据、元数据，有的不会走蓄流路径而是直接进入调度队列尽快得到调度。注意一点，通用块层的蓄流只是提供机制和接口而不是策略，也就是需不需要蓄流、何时蓄流完全由内核中的 I&#x2F;O 派发者决定；</li>
+</ul>
+<h2 id="2-合并方式"><a href="#2-合并方式" class="headerlink" title="2. 合并方式"></a>2. 合并方式</h2><p>应用程序无论使用图中哪条 I&#x2F;O 路径，内核都会想方设法对 I&#x2F;O 进行合并。内核为促进这种合并，在 I&#x2F;O 栈上设置了三种合并方式以对应以上三种 I&#x2F;O 路径：</p>
+<ul>
+<li>Cache（页高速缓存）</li>
+<li>Plug list（蓄流链表）</li>
+<li>Elevator Queue（调度队列）</li>
+</ul>
+<p>其中 Cache 属于文件系统层的内容，本文中不讨论，我们主要分析另外两种 I&#x2F;O 合并方式。</p>
+<h3 id="2-1-逻辑入口"><a href="#2-1-逻辑入口" class="headerlink" title="2.1. 逻辑入口"></a>2.1. 逻辑入口</h3><p><code>blk_queue_io()</code> 函数是通用块层进行 I&#x2F;O 合并的入口函数，该函数内先尝试 Plug 合并，合并成功返回，合并失败则继续尝试 Elevator 合并，合并成功返回，合并失败则为 bio 创建一个新的 request 插入到调度队列中，尝试 I&#x2F;O 合并部分的代码如下：</p>
+<figure class="highlight c++"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br><span class="line">78</span><br><span class="line">79</span><br><span class="line">80</span><br><span class="line">81</span><br><span class="line">82</span><br><span class="line">83</span><br><span class="line">84</span><br><span class="line">85</span><br><span class="line">86</span><br><span class="line">87</span><br><span class="line">88</span><br><span class="line">89</span><br><span class="line">90</span><br><span class="line">91</span><br><span class="line">92</span><br><span class="line">93</span><br><span class="line">94</span><br><span class="line">95</span><br><span class="line">96</span><br><span class="line">97</span><br><span class="line">98</span><br><span class="line">99</span><br><span class="line">100</span><br><span class="line">101</span><br><span class="line">102</span><br><span class="line">103</span><br><span class="line">104</span><br><span class="line">105</span><br><span class="line">106</span><br><span class="line">107</span><br><span class="line">108</span><br><span class="line">109</span><br><span class="line">110</span><br><span class="line">111</span><br><span class="line">112</span><br><span class="line">113</span><br><span class="line">114</span><br><span class="line">115</span><br><span class="line">116</span><br><span class="line">117</span><br><span class="line">118</span><br><span class="line">119</span><br><span class="line">120</span><br><span class="line">121</span><br><span class="line">122</span><br><span class="line">123</span><br><span class="line">124</span><br><span class="line">125</span><br><span class="line">126</span><br><span class="line">127</span><br><span class="line">128</span><br><span class="line">129</span><br><span class="line">130</span><br><span class="line">131</span><br><span class="line">132</span><br><span class="line">133</span><br><span class="line">134</span><br><span class="line">135</span><br><span class="line">136</span><br><span class="line">137</span><br><span class="line">138</span><br><span class="line">139</span><br><span class="line">140</span><br><span class="line">141</span><br><span class="line">142</span><br><span class="line">143</span><br><span class="line">144</span><br><span class="line">145</span><br><span class="line">146</span><br><span class="line">147</span><br><span class="line">148</span><br><span class="line">149</span><br><span class="line">150</span><br><span class="line">151</span><br><span class="line">152</span><br><span class="line">153</span><br><span class="line">154</span><br><span class="line">155</span><br><span class="line">156</span><br><span class="line">157</span><br><span class="line">158</span><br><span class="line">159</span><br><span class="line">160</span><br><span class="line">161</span><br><span class="line">162</span><br><span class="line">163</span><br><span class="line">164</span><br><span class="line">165</span><br><span class="line">166</span><br><span class="line">167</span><br><span class="line">168</span><br><span class="line">169</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="type">void</span> <span class="title">blk_queue_io</span><span class="params">(<span class="keyword">struct</span> request_queue *q, <span class="keyword">struct</span> bio *bio)</span></span></span><br><span class="line"><span class="function"></span>&#123;</span><br><span class="line">        <span class="type">const</span> <span class="type">bool</span> sync = !!(bio-&gt;bi_rw &amp; REQ_SYNC);</span><br><span class="line">        <span class="keyword">struct</span> <span class="title class_">blk_plug</span> *plug;</span><br><span class="line">        <span class="type">int</span> el_ret, rw_flags, where = ELEVATOR_INSERT_SORT;</span><br><span class="line">        <span class="keyword">struct</span> <span class="title class_">request</span> *req, *free;</span><br><span class="line">        <span class="type">unsigned</span> <span class="type">int</span> request_count = <span class="number">0</span>;</span><br><span class="line"></span><br><span class="line">        <span class="comment">/*</span></span><br><span class="line"><span class="comment">         * low level driver can indicate that it wants pages above a</span></span><br><span class="line"><span class="comment">         * certain limit bounced to low memory (ie for highmem, or even</span></span><br><span class="line"><span class="comment">         * ISA dma in theory)</span></span><br><span class="line"><span class="comment">         *</span></span><br><span class="line"><span class="comment">         * 做DMA时的相关地址限制，可能该bio只能访问低端内存，</span></span><br><span class="line"><span class="comment">         * 因此需要将高端内存中的bio数据拷贝到低端内存中</span></span><br><span class="line"><span class="comment">         */</span></span><br><span class="line">        <span class="built_in">blk_queue_bounce</span>(q, &amp;bio);</span><br><span class="line"></span><br><span class="line">        <span class="comment">/* 完整性校验 */</span></span><br><span class="line">        <span class="keyword">if</span> (<span class="built_in">bio_integrity_enabled</span>(bio) &amp;&amp; <span class="built_in">bio_integrity_prep</span>(bio)) &#123;</span><br><span class="line">                <span class="built_in">bio_endio</span>(bio, -EIO);</span><br><span class="line">                <span class="keyword">return</span>;</span><br><span class="line">        &#125;</span><br><span class="line"></span><br><span class="line">        <span class="comment">/* FLUSH和FUA直接生成新的请求处理 */</span></span><br><span class="line">        <span class="keyword">if</span> (bio-&gt;bi_rw &amp; (REQ_FLUSH | REQ_FUA)) &#123;</span><br><span class="line">                <span class="built_in">spin_lock_irq</span>(q-&gt;queue_lock);</span><br><span class="line">                where = ELEVATOR_INSERT_FLUSH;</span><br><span class="line">                <span class="keyword">goto</span> get_rq;</span><br><span class="line">        &#125;</span><br><span class="line"></span><br><span class="line">        <span class="comment">/*</span></span><br><span class="line"><span class="comment">         * Check if we can merge with the plugged list before grabbing</span></span><br><span class="line"><span class="comment">         * any locks.</span></span><br><span class="line"><span class="comment">         *</span></span><br><span class="line"><span class="comment">         * 先尝试plug合并，plug中为当前进程的req链表，合并成功直接返回</span></span><br><span class="line"><span class="comment">         */</span></span><br><span class="line">        <span class="keyword">if</span> (!<span class="built_in">blk_queue_nomerges</span>(q)) &#123;</span><br><span class="line">                <span class="keyword">if</span> (<span class="built_in">blk_attempt_plug_merge</span>(q, bio, &amp;request_count, <span class="literal">NULL</span>))</span><br><span class="line">                        <span class="keyword">return</span>;</span><br><span class="line">        &#125; <span class="keyword">else</span></span><br><span class="line">                request_count = <span class="built_in">blk_plug_queued_count</span>(q);</span><br><span class="line"></span><br><span class="line">        <span class="comment">/* 不管是与队列中的请求合并还是插入新的请求都需要加锁 */</span></span><br><span class="line">        <span class="built_in">spin_lock_irq</span>(q-&gt;queue_lock);</span><br><span class="line"></span><br><span class="line">        <span class="comment">/* 这里记录下电梯哈希和调度算法调度队列</span></span><br><span class="line"><span class="comment">         * bio生成新的请求后，会插入两个地方</span></span><br><span class="line"><span class="comment">         * 1.电梯的通用哈希表，以请求的结束为止为哈希值进行哈希，</span></span><br><span class="line"><span class="comment">         *   便于查找可以向后合并的请求</span></span><br><span class="line"><span class="comment">         *   q-&gt;elevator-&gt;hash</span></span><br><span class="line"><span class="comment">         * 2.具体调度算法的调度队列，用于调度算法进行调度，以deadline为例</span></span><br><span class="line"><span class="comment">         *   q-&gt;elevator-&gt;elevator_data-&gt;sort_list/fifo_expire</span></span><br><span class="line"><span class="comment">         *</span></span><br><span class="line"><span class="comment">         * 调度算法派发请求后，请求会进入q的派发队列，</span></span><br><span class="line"><span class="comment">         *   同时从哈希和调度队列中移除</span></span><br><span class="line"><span class="comment">         */</span></span><br><span class="line"></span><br><span class="line">        <span class="comment">/* 在请求队列的哈希表中查找可以向后合并的请求，在调度算法</span></span><br><span class="line"><span class="comment">         * 的调度队列中查找可以合并的请求（deadline算法中只有向前合并）</span></span><br><span class="line"><span class="comment">         */</span></span><br><span class="line">        el_ret = <span class="built_in">elv_merge</span>(q, &amp;req, bio);</span><br><span class="line">        <span class="keyword">if</span> (el_ret == ELEVATOR_BACK_MERGE) &#123;</span><br><span class="line">                <span class="comment">/* 尝试进行bio与req的合并 */</span></span><br><span class="line">                <span class="keyword">if</span> (<span class="built_in">bio_attempt_back_merge</span>(q, req, bio)) &#123;</span><br><span class="line">                        <span class="comment">/* 合并成功的话，调用具体调度算法的后续处理（deadline中并没有实现接口） */</span></span><br><span class="line">                        <span class="built_in">elv_bio_merged</span>(q, req, bio);</span><br><span class="line">                        <span class="comment">/* 这次合并的bio可能会弥补两个bio之间的空隙，所以这里查找根据</span></span><br><span class="line"><span class="comment">                         * 给定req后边的一个请求，判断能否进行合并</span></span><br><span class="line"><span class="comment">                         */</span></span><br><span class="line">                        free = <span class="built_in">attempt_back_merge</span>(q, req);</span><br><span class="line">                        <span class="keyword">if</span> (!free)</span><br><span class="line">                                <span class="comment">/* 如果上边没有检测到可以合并的request，则调用接口处理</span></span><br><span class="line"><span class="comment">                                 * bio合并到request之后的处理：</span></span><br><span class="line"><span class="comment">                                 *   1.调用调度算法的回调函数处理调度算法需要执行的操作</span></span><br><span class="line"><span class="comment">                                 *   2.如果是向后合并还需要更新电梯哈希</span></span><br><span class="line"><span class="comment">                                 */</span></span><br><span class="line">                                <span class="built_in">elv_merged_request</span>(q, req, el_ret);</span><br><span class="line">                        <span class="keyword">else</span></span><br><span class="line">                                __blk_put_request(q, free);</span><br><span class="line">                        <span class="keyword">goto</span> out_unlock;</span><br><span class="line">                &#125;</span><br><span class="line">        &#125; <span class="keyword">else</span> <span class="keyword">if</span> (el_ret == ELEVATOR_FRONT_MERGE) &#123;</span><br><span class="line">                <span class="keyword">if</span> (<span class="built_in">bio_attempt_front_merge</span>(q, req, bio)) &#123;</span><br><span class="line">                        <span class="built_in">elv_bio_merged</span>(q, req, bio);</span><br><span class="line">                        free = <span class="built_in">attempt_front_merge</span>(q, req);</span><br><span class="line">                        <span class="keyword">if</span> (!free)</span><br><span class="line">                                <span class="built_in">elv_merged_request</span>(q, req, el_ret);</span><br><span class="line">                        <span class="keyword">else</span></span><br><span class="line">                                __blk_put_request(q, free);</span><br><span class="line">                        <span class="keyword">goto</span> out_unlock;</span><br><span class="line">                &#125;</span><br><span class="line">        &#125;</span><br><span class="line"></span><br><span class="line">get_rq:</span><br><span class="line">        <span class="comment">/* bio无法合并，为其申请一个新的request */</span></span><br><span class="line">        <span class="comment">/*</span></span><br><span class="line"><span class="comment">         * This sync check and mask will be re-done in init_request_from_bio(),</span></span><br><span class="line"><span class="comment">         * but we need to set it earlier to expose the sync flag to the</span></span><br><span class="line"><span class="comment">         * rq allocator and io schedulers.</span></span><br><span class="line"><span class="comment">         */</span></span><br><span class="line">        rw_flags = <span class="built_in">bio_data_dir</span>(bio);</span><br><span class="line">        <span class="keyword">if</span> (sync)</span><br><span class="line">                rw_flags |= REQ_SYNC;</span><br><span class="line"></span><br><span class="line">        <span class="comment">/*</span></span><br><span class="line"><span class="comment">         * Grab a free request. This is might sleep but can not fail.</span></span><br><span class="line"><span class="comment">         * Returns with the queue unlocked.</span></span><br><span class="line"><span class="comment">         */</span></span><br><span class="line">        <span class="built_in">blk_queue_enter_live</span>(q);</span><br><span class="line">        <span class="comment">/* 获取空闲的请求 */</span></span><br><span class="line">        req = <span class="built_in">get_request</span>(q, rw_flags, bio, <span class="number">0</span>);</span><br><span class="line">        <span class="keyword">if</span> (<span class="built_in">IS_ERR</span>(req)) &#123;</span><br><span class="line">                <span class="built_in">blk_queue_exit</span>(q);</span><br><span class="line">                <span class="built_in">bio_endio</span>(bio, <span class="built_in">PTR_ERR</span>(req));        <span class="comment">/* @q is dead */</span></span><br><span class="line">                <span class="keyword">goto</span> out_unlock;</span><br><span class="line">        &#125;</span><br><span class="line"></span><br><span class="line">        <span class="comment">/*</span></span><br><span class="line"><span class="comment">         * After dropping the lock and possibly sleeping here, our request</span></span><br><span class="line"><span class="comment">         * may now be mergeable after it had proven unmergeable (above).</span></span><br><span class="line"><span class="comment">         * We don&#x27;t worry about that case for efficiency. It won&#x27;t happen</span></span><br><span class="line"><span class="comment">         * often, and the elevators are able to handle it.</span></span><br><span class="line"><span class="comment">         *</span></span><br><span class="line"><span class="comment">         * 根据bio初始化request</span></span><br><span class="line"><span class="comment">         */</span></span><br><span class="line">        <span class="built_in">init_request_from_bio</span>(req, bio);</span><br><span class="line"></span><br><span class="line">        <span class="keyword">if</span> (<span class="built_in">test_bit</span>(QUEUE_FLAG_SAME_COMP, &amp;q-&gt;queue_flags))</span><br><span class="line">                req-&gt;cpu = <span class="built_in">raw_smp_processor_id</span>();</span><br><span class="line"></span><br><span class="line">        <span class="comment">/* 如果当前进程有plug_list，首先插入到plug_list中 */</span></span><br><span class="line">        plug = current-&gt;plug;</span><br><span class="line">        <span class="keyword">if</span> (plug) &#123;</span><br><span class="line">                <span class="comment">/*</span></span><br><span class="line"><span class="comment">                 * If this is the first request added after a plug, fire</span></span><br><span class="line"><span class="comment">                 * of a plug trace.</span></span><br><span class="line"><span class="comment">                 *</span></span><br><span class="line"><span class="comment">                 * @request_count may become stale because of schedule</span></span><br><span class="line"><span class="comment">                 * out, so check plug list again.</span></span><br><span class="line"><span class="comment">                 */</span></span><br><span class="line">                <span class="keyword">if</span> (!request_count || <span class="built_in">list_empty</span>(&amp;plug-&gt;list))</span><br><span class="line">                        <span class="built_in">trace_block_plug</span>(q);</span><br><span class="line">                <span class="keyword">else</span> &#123;</span><br><span class="line">                        <span class="keyword">struct</span> request *last = <span class="built_in">list_entry_rq</span>(plug-&gt;list.prev);</span><br><span class="line">                        <span class="keyword">if</span> (request_count &gt;= BLK_MAX_REQUEST_COUNT ||</span><br><span class="line">                            <span class="built_in">blk_rq_bytes</span>(last) &gt;= BLK_PLUG_FLUSH_SIZE) &#123;</span><br><span class="line">                                <span class="built_in">blk_flush_plug_list</span>(plug, <span class="literal">false</span>);</span><br><span class="line">                                <span class="built_in">trace_block_plug</span>(q);</span><br><span class="line">                        &#125;</span><br><span class="line">                &#125;</span><br><span class="line">                <span class="comment">/* 插入到plug链表 */</span></span><br><span class="line">                <span class="built_in">list_add_tail</span>(&amp;req-&gt;queuelist, &amp;plug-&gt;list);</span><br><span class="line">                <span class="built_in">blk_account_io_start</span>(req, <span class="literal">true</span>);</span><br><span class="line">        &#125; <span class="keyword">else</span> &#123;</span><br><span class="line">                <span class="built_in">spin_lock_irq</span>(q-&gt;queue_lock);</span><br><span class="line">                <span class="comment">/* 插入到电梯及调度算法中 */</span></span><br><span class="line">                <span class="built_in">add_acct_request</span>(q, req, where);</span><br><span class="line">                <span class="comment">/* 执行q-&gt;request_fn(q)，调用底层驱动的策略例程处理请求。</span></span><br><span class="line"><span class="comment">                 * 以SCSI为例，request_fn初始化为scsi_request_fn</span></span><br><span class="line"><span class="comment">                 * scsi_request_fn-&gt;blk_peek_request-&gt;__elv_next_request</span></span><br><span class="line"><span class="comment">                 * __elv_next_request中会使用调度具体算法的</span></span><br><span class="line"><span class="comment">                 * dispatch回调函数取出请求进行处理</span></span><br><span class="line"><span class="comment">                 */</span></span><br><span class="line">                __blk_run_queue(q);</span><br><span class="line">out_unlock:</span><br><span class="line">                <span class="built_in">spin_unlock_irq</span>(q-&gt;queue_lock);</span><br><span class="line">        &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<h3 id="2-2-Plug-合并"><a href="#2-2-Plug-合并" class="headerlink" title="2.2. Plug 合并"></a>2.2. Plug 合并</h3><p>Plug 合并是内核通用块层提供的机制，如果需要开启则在提交 I&#x2F;O 前执行 <code>blk_start_plug()</code> 函数启动蓄流，IO 全部提交完成后执行 <code>blk_finish_plug()</code> 函数进行泄流。启动蓄流主要是为当前进程（ <code>current</code> 宏）分配 plug 链表，提交 I&#x2F;O 时 plug 链表存在则 I&#x2F;O 先缓存到该链表中，执行泄流时将该链表中缓存的 I&#x2F;O 下发。执行 plug 合并的函数为 <code>blk_attempt_plug_merge()</code> ，该函数的主要逻辑为遍历 <code>current-&gt;plug-&gt;list</code> 中的所有请求，将属于同一个底层设备队列且位置相邻的请求合并在一起，代码逻辑如下：</p>
+<figure class="highlight c++"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="type">bool</span> <span class="title">blk_attempt_plug_merge</span><span class="params">(<span class="keyword">struct</span> request_queue *q, <span class="keyword">struct</span> bio *bio,</span></span></span><br><span class="line"><span class="params"><span class="function">                            <span class="type">unsigned</span> <span class="type">int</span> *request_count,</span></span></span><br><span class="line"><span class="params"><span class="function">                            <span class="keyword">struct</span> request **same_queue_rq)</span></span></span><br><span class="line"><span class="function"></span>&#123;</span><br><span class="line">        <span class="keyword">struct</span> <span class="title class_">blk_plug</span> *plug;</span><br><span class="line">        <span class="keyword">struct</span> <span class="title class_">request</span> *rq;</span><br><span class="line">        <span class="type">bool</span> ret = <span class="literal">false</span>;</span><br><span class="line">        <span class="keyword">struct</span> <span class="title class_">list_head</span> *plug_list;</span><br><span class="line"></span><br><span class="line">        plug = current-&gt;plug;</span><br><span class="line">        <span class="keyword">if</span> (!plug)</span><br><span class="line">                <span class="keyword">goto</span> out;</span><br><span class="line">        *request_count = <span class="number">0</span>;</span><br><span class="line"></span><br><span class="line">        <span class="keyword">if</span> (q-&gt;mq_ops)</span><br><span class="line">                plug_list = &amp;plug-&gt;mq_list;</span><br><span class="line">        <span class="keyword">else</span></span><br><span class="line">                plug_list = &amp;plug-&gt;list;</span><br><span class="line"></span><br><span class="line">        <span class="built_in">list_for_each_entry_reverse</span>(rq, plug_list, queuelist) &#123;</span><br><span class="line">                <span class="type">int</span> el_ret;</span><br><span class="line"></span><br><span class="line">                <span class="comment">/* 给plug_list中同一个设备的请求计数 */</span></span><br><span class="line">                <span class="keyword">if</span> (rq-&gt;q == q) &#123;</span><br><span class="line">                        (*request_count)++;</span><br><span class="line">                        <span class="comment">/*</span></span><br><span class="line"><span class="comment">                         * Only blk-mq multiple hardware queues case checks the</span></span><br><span class="line"><span class="comment">                         * rq in the same queue, there should be only one such</span></span><br><span class="line"><span class="comment">                         * rq in a queue</span></span><br><span class="line"><span class="comment">                         **/</span></span><br><span class="line">                        <span class="keyword">if</span> (same_queue_rq)</span><br><span class="line">                                *same_queue_rq = rq;</span><br><span class="line">                &#125;</span><br><span class="line"></span><br><span class="line">                <span class="comment">/* 同一队列，满足合并的才能合并 */</span></span><br><span class="line">                <span class="keyword">if</span> (rq-&gt;q != q || !<span class="built_in">blk_rq_merge_ok</span>(rq, bio))</span><br><span class="line">                        <span class="keyword">continue</span>;</span><br><span class="line"></span><br><span class="line">                <span class="comment">/* 判断能进行合并的位置 */</span></span><br><span class="line">                el_ret = <span class="built_in">blk_try_merge</span>(rq, bio);</span><br><span class="line">                <span class="keyword">if</span> (el_ret == ELEVATOR_BACK_MERGE) &#123;</span><br><span class="line">                        ret = <span class="built_in">bio_attempt_back_merge</span>(q, rq, bio);</span><br><span class="line">                        <span class="keyword">if</span> (ret)</span><br><span class="line">                                <span class="keyword">break</span>;</span><br><span class="line">                &#125; <span class="keyword">else</span> <span class="keyword">if</span> (el_ret == ELEVATOR_FRONT_MERGE) &#123;</span><br><span class="line">                        ret = <span class="built_in">bio_attempt_front_merge</span>(q, rq, bio);</span><br><span class="line">                        <span class="keyword">if</span> (ret)</span><br><span class="line">                                <span class="keyword">break</span>;</span><br><span class="line">                &#125;</span><br><span class="line">        &#125;</span><br><span class="line">out:</span><br><span class="line">        <span class="keyword">return</span> ret;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>该逻辑中有两点需要注意。一是 <code>request_count</code> 计数，该变量统计 plug 链表中与当前 I&#x2F;O 属于同一队列的请求个数，当数量超过 <code>BLK_MAX_REQUEST_COUNT</code> （当前定义为 16）时则主动下刷 plug 中的请求；二是函数 <code>blk_rq_merge_ok()</code> 与函数 <code>blk_try_merge()</code> ，其中 <code>blk_rq_merge_ok()</code> 检查 req 及 bio 属性是否支持合并， <code>blk_try_merge()</code> 则是根据 req 及 bio 的起始位置与长度来检查是否相邻，以判断能否合并以及合并的类型（前向&#x2F;后向），代码如下：</p>
+<figure class="highlight c++"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="type">bool</span> <span class="title">blk_rq_merge_ok</span><span class="params">(<span class="keyword">struct</span> request *rq, <span class="keyword">struct</span> bio *bio)</span></span></span><br><span class="line"><span class="function"></span>&#123;</span><br><span class="line">        <span class="comment">/* rq_mergeable - 判断rq是否有不允许合并的标记</span></span><br><span class="line"><span class="comment">         * bio_mergeable - 判断bio是否有不允许合并的标记</span></span><br><span class="line"><span class="comment">         */</span></span><br><span class="line">        <span class="keyword">if</span> (!<span class="built_in">rq_mergeable</span>(rq) || !<span class="built_in">bio_mergeable</span>(bio))</span><br><span class="line">                <span class="keyword">return</span> <span class="literal">false</span>;</span><br><span class="line"></span><br><span class="line">        <span class="comment">/* 判断rq和bio是否是特殊的请求，</span></span><br><span class="line"><span class="comment">         * 如果是特殊请求并且两者相同则不允许合并</span></span><br><span class="line"><span class="comment">         */</span></span><br><span class="line">        <span class="keyword">if</span> (!<span class="built_in">blk_check_merge_flags</span>(rq-&gt;cmd_flags, bio-&gt;bi_rw))</span><br><span class="line">                <span class="keyword">return</span> <span class="literal">false</span>;</span><br><span class="line"></span><br><span class="line">        <span class="comment">/* different data direction or already started, don&#x27;t merge */</span></span><br><span class="line">        <span class="comment">/* 请求方向不同，不能合并 */</span></span><br><span class="line">        <span class="keyword">if</span> (<span class="built_in">bio_data_dir</span>(bio) != <span class="built_in">rq_data_dir</span>(rq))</span><br><span class="line">                <span class="keyword">return</span> <span class="literal">false</span>;</span><br><span class="line"></span><br><span class="line">        <span class="comment">/* must be same device and not a special request */</span></span><br><span class="line">        <span class="comment">/* 指向的通用磁盘不同或者rq是特殊请求，不能合并 */</span></span><br><span class="line">        <span class="keyword">if</span> (rq-&gt;rq_disk != bio-&gt;bi_bdev-&gt;bd_disk || <span class="built_in">req_no_special_merge</span>(rq))</span><br><span class="line">                <span class="keyword">return</span> <span class="literal">false</span>;</span><br><span class="line"></span><br><span class="line">        <span class="comment">/* only merge integrity protected bio into ditto rq */</span></span><br><span class="line">        <span class="comment">/* 完整性保护不同的请求和bio，不能合并 */</span></span><br><span class="line">        <span class="keyword">if</span> (<span class="built_in">bio_integrity</span>(bio) != <span class="built_in">blk_integrity_rq</span>(rq))</span><br><span class="line">                <span class="keyword">return</span> <span class="literal">false</span>;</span><br><span class="line"></span><br><span class="line">        <span class="comment">/* must be using the same buffer */</span></span><br><span class="line">        <span class="comment">/* REQ_WRITE_SAME请求，来自不同的page，不能合并 */</span></span><br><span class="line">        <span class="keyword">if</span> (rq-&gt;cmd_flags &amp; REQ_WRITE_SAME &amp;&amp;</span><br><span class="line">            !<span class="built_in">blk_write_same_mergeable</span>(rq-&gt;bio, bio))</span><br><span class="line">                <span class="keyword">return</span> <span class="literal">false</span>;</span><br><span class="line"></span><br><span class="line">        <span class="keyword">return</span> <span class="literal">true</span>;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="type">int</span> <span class="title">blk_try_merge</span><span class="params">(<span class="keyword">struct</span> request *rq, <span class="keyword">struct</span> bio *bio)</span></span></span><br><span class="line"><span class="function"></span>&#123;</span><br><span class="line">        <span class="comment">/* rq结束位置等于bio起始位置返回后向合并 */</span></span><br><span class="line">        <span class="keyword">if</span> (<span class="built_in">blk_rq_pos</span>(rq) + <span class="built_in">blk_rq_sectors</span>(rq) == bio-&gt;bi_sector)</span><br><span class="line">                <span class="keyword">return</span> ELEVATOR_BACK_MERGE;</span><br><span class="line">        <span class="comment">/* bio结束位置等于rq起始位置返回前向合并 */</span></span><br><span class="line">        <span class="keyword">else</span> <span class="keyword">if</span> (<span class="built_in">blk_rq_pos</span>(rq) - <span class="built_in">bio_sectors</span>(bio) == bio-&gt;bi_sector)</span><br><span class="line">                <span class="keyword">return</span> ELEVATOR_FRONT_MERGE;</span><br><span class="line">        <span class="keyword">return</span> ELEVATOR_NO_MERGE;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>执行泄流操作的函数是 <code>blk_flush_plug_list()</code> ，代码逻辑如下：</p>
+<figure class="highlight c++"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br><span class="line">78</span><br><span class="line">79</span><br><span class="line">80</span><br><span class="line">81</span><br><span class="line">82</span><br><span class="line">83</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="type">void</span> <span class="title">blk_flush_plug_list</span><span class="params">(<span class="keyword">struct</span> blk_plug *plug, <span class="type">bool</span> from_schedule)</span></span></span><br><span class="line"><span class="function"></span>&#123;</span><br><span class="line">        <span class="keyword">struct</span> <span class="title class_">request_queue</span> *q;</span><br><span class="line">        <span class="type">unsigned</span> <span class="type">long</span> flags;</span><br><span class="line">        <span class="keyword">struct</span> <span class="title class_">request</span> *rq;</span><br><span class="line">        <span class="built_in">LIST_HEAD</span>(list);</span><br><span class="line">        <span class="type">unsigned</span> <span class="type">int</span> depth;</span><br><span class="line"></span><br><span class="line">        <span class="built_in">BUG_ON</span>(plug-&gt;magic != PLUG_MAGIC);</span><br><span class="line"></span><br><span class="line">        <span class="built_in">flush_plug_callbacks</span>(plug, from_schedule);</span><br><span class="line"></span><br><span class="line">        <span class="keyword">if</span> (!<span class="built_in">list_empty</span>(&amp;plug-&gt;mq_list))</span><br><span class="line">                <span class="built_in">blk_mq_flush_plug_list</span>(plug, from_schedule);</span><br><span class="line"></span><br><span class="line">        <span class="keyword">if</span> (<span class="built_in">list_empty</span>(&amp;plug-&gt;list))</span><br><span class="line">                <span class="keyword">return</span>;</span><br><span class="line"></span><br><span class="line">        <span class="built_in">list_splice_init</span>(&amp;plug-&gt;list, &amp;list);</span><br><span class="line"></span><br><span class="line">        <span class="comment">/* 1.根据请求所在的q排序，这样可以优先处理同一设备的请求</span></span><br><span class="line"><span class="comment">         * 2.同一设备的请求根据请求的起始位置排序，这样可以优化处理性能</span></span><br><span class="line"><span class="comment">         */</span></span><br><span class="line">        <span class="built_in">list_sort</span>(<span class="literal">NULL</span>, &amp;list, plug_rq_cmp);</span><br><span class="line"></span><br><span class="line">        q = <span class="literal">NULL</span>;</span><br><span class="line">        depth = <span class="number">0</span>;</span><br><span class="line"></span><br><span class="line">        <span class="comment">/*</span></span><br><span class="line"><span class="comment">         * Save and disable interrupts here, to avoid doing it for every</span></span><br><span class="line"><span class="comment">         * queue lock we have to take.</span></span><br><span class="line"><span class="comment">         */</span></span><br><span class="line">        <span class="built_in">local_irq_save</span>(flags);</span><br><span class="line">        <span class="keyword">while</span> (!<span class="built_in">list_empty</span>(&amp;list)) &#123;</span><br><span class="line">                rq = <span class="built_in">list_entry_rq</span>(list.next);</span><br><span class="line">                <span class="built_in">list_del_init</span>(&amp;rq-&gt;queuelist);</span><br><span class="line">                <span class="built_in">BUG_ON</span>(!rq-&gt;q);</span><br><span class="line">                <span class="comment">/* 当 rq-&gt;q != q 时，说明一个队列的请求都已经取出，排查第一次，</span></span><br><span class="line"><span class="comment">                 * 当q为真时调用q-&gt;request_fn处理请求，q-&gt;request_fn会调用</span></span><br><span class="line"><span class="comment">                 * 具体的调度算法取出请求进行处理</span></span><br><span class="line"><span class="comment">                 */</span></span><br><span class="line">                <span class="keyword">if</span> (rq-&gt;q != q) &#123;</span><br><span class="line">                        <span class="comment">/*</span></span><br><span class="line"><span class="comment">                         * This drops the queue lock</span></span><br><span class="line"><span class="comment">                         */</span></span><br><span class="line">                        <span class="keyword">if</span> (q)</span><br><span class="line">                                <span class="built_in">queue_unplugged</span>(q, depth, from_schedule);</span><br><span class="line">                        q = rq-&gt;q;</span><br><span class="line">                        depth = <span class="number">0</span>;</span><br><span class="line">                        <span class="built_in">spin_lock</span>(q-&gt;queue_lock);</span><br><span class="line">                &#125;</span><br><span class="line"></span><br><span class="line">                <span class="comment">/*</span></span><br><span class="line"><span class="comment">                 * Short-circuit if @q is dead</span></span><br><span class="line"><span class="comment">                 */</span></span><br><span class="line">                <span class="keyword">if</span> (<span class="built_in">unlikely</span>(<span class="built_in">blk_queue_dying</span>(q))) &#123;</span><br><span class="line">                        __blk_end_request_all(rq, -ENODEV);</span><br><span class="line">                        <span class="keyword">continue</span>;</span><br><span class="line">                &#125;</span><br><span class="line"></span><br><span class="line">                <span class="comment">/*</span></span><br><span class="line"><span class="comment">                 * rq is already accounted, so use raw insert</span></span><br><span class="line"><span class="comment">                 *</span></span><br><span class="line"><span class="comment">                 * 在这里处理同一个队列的请求时，先将请求插入到调度队列和电梯</span></span><br><span class="line"><span class="comment">                 * 哈希中，同一队列全部插入完成后，在上边会一次性处理</span></span><br><span class="line"><span class="comment">                 */</span></span><br><span class="line">                <span class="keyword">if</span> (rq-&gt;cmd_flags &amp; (REQ_FLUSH | REQ_FUA))</span><br><span class="line">                        __elv_add_request(q, rq, ELEVATOR_INSERT_FLUSH);</span><br><span class="line">                <span class="keyword">else</span></span><br><span class="line">                        __elv_add_request(q, rq, ELEVATOR_INSERT_SORT_MERGE);</span><br><span class="line"></span><br><span class="line">                depth++;</span><br><span class="line">        &#125;</span><br><span class="line"></span><br><span class="line">        <span class="comment">/*</span></span><br><span class="line"><span class="comment">         * This drops the queue lock</span></span><br><span class="line"><span class="comment">         * 处理最后一个设备的请求</span></span><br><span class="line"><span class="comment">         */</span></span><br><span class="line">        <span class="keyword">if</span> (q)</span><br><span class="line">                <span class="built_in">queue_unplugged</span>(q, depth, from_schedule);</span><br><span class="line"></span><br><span class="line">        <span class="built_in">local_irq_restore</span>(flags);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<h3 id="2-3-Elevator-合并"><a href="#2-3-Elevator-合并" class="headerlink" title="2.3. Elevator 合并"></a>2.3. Elevator 合并</h3><p>bio 生成新的 request 后，会插入到两个位置。一是电梯调度算法的哈希表中，以 request 的结束位置为哈希值进行哈希，便于查找可以后向合并的请求，取值为 <code>q-&gt;elevator-&gt;hash</code> ；二是具体调度算法的调度队列，用于调度算法进行 I&#x2F;O 调度，以 deadline 调度算法为例，取值为 <code>q-&gt;elevator-&gt;elevator_data-&gt;sort_list/fifo_expire</code> 。调度算法派发请求后，请求会进入 <code>q</code> 的派发队列并同时从哈希和调度队列中移除。执行 Elevator 合并的函数为 <code>elv_merge()</code> ，主要包含电梯调度算法的后向合并以及具体 I&#x2F;O 调度算法的前向合并，并且为了提高合并效率，函数在最开始先检查最近一次合并成功的请求能否与 bio 进行合并。代码逻辑如下：</p>
+<figure class="highlight c++"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="type">int</span> <span class="title">elv_merge</span><span class="params">(<span class="keyword">struct</span> request_queue *q, <span class="keyword">struct</span> request **req, <span class="keyword">struct</span> bio *bio)</span></span></span><br><span class="line"><span class="function"></span>&#123;</span><br><span class="line">        <span class="keyword">struct</span> <span class="title class_">elevator_queue</span> *e = q-&gt;elevator;</span><br><span class="line">        <span class="keyword">struct</span> <span class="title class_">request</span> *__rq;</span><br><span class="line">        <span class="type">int</span> ret;</span><br><span class="line"></span><br><span class="line">        <span class="comment">/*</span></span><br><span class="line"><span class="comment">         * Levels of merges:</span></span><br><span class="line"><span class="comment">         *         nomerges:  No merges at all attempted</span></span><br><span class="line"><span class="comment">         *         noxmerges: Only simple one-hit cache try</span></span><br><span class="line"><span class="comment">         *         merges:           All merge tries attempted</span></span><br><span class="line"><span class="comment">         *</span></span><br><span class="line"><span class="comment">         * 检查队列是否设置禁止合并的标记</span></span><br><span class="line"><span class="comment">         */</span></span><br><span class="line">        <span class="keyword">if</span> (<span class="built_in">blk_queue_nomerges</span>(q))</span><br><span class="line">                <span class="keyword">return</span> ELEVATOR_NO_MERGE;</span><br><span class="line"></span><br><span class="line">        <span class="comment">/*</span></span><br><span class="line"><span class="comment">         * First try one-hit cache.</span></span><br><span class="line"><span class="comment">         * 首先检测上次进行了合并的请求能否再次合并</span></span><br><span class="line"><span class="comment">         */</span></span><br><span class="line">        <span class="keyword">if</span> (q-&gt;last_merge &amp;&amp; <span class="built_in">elv_bio_merge_ok</span>(q-&gt;last_merge, bio)) &#123;</span><br><span class="line">                ret = <span class="built_in">blk_try_merge</span>(q-&gt;last_merge, bio);</span><br><span class="line">                <span class="keyword">if</span> (ret != ELEVATOR_NO_MERGE) &#123;</span><br><span class="line">                        *req = q-&gt;last_merge;</span><br><span class="line">                        <span class="keyword">return</span> ret;</span><br><span class="line">                &#125;</span><br><span class="line">        &#125;</span><br><span class="line"></span><br><span class="line">        <span class="keyword">if</span> (<span class="built_in">blk_queue_noxmerges</span>(q))</span><br><span class="line">                <span class="keyword">return</span> ELEVATOR_NO_MERGE;</span><br><span class="line"></span><br><span class="line">        <span class="comment">/*</span></span><br><span class="line"><span class="comment">         * See if our hash lookup can find a potential backmerge.</span></span><br><span class="line"><span class="comment">         * 在哈希中查找可能后向合并的请求</span></span><br><span class="line"><span class="comment">         */</span></span><br><span class="line">        __rq = <span class="built_in">elv_rqhash_find</span>(q, bio-&gt;bi_sector);</span><br><span class="line">        <span class="keyword">if</span> (__rq &amp;&amp; <span class="built_in">elv_bio_merge_ok</span>(__rq, bio)) &#123;</span><br><span class="line">                *req = __rq;</span><br><span class="line">                <span class="keyword">return</span> ELEVATOR_BACK_MERGE;</span><br><span class="line">        &#125;</span><br><span class="line"></span><br><span class="line">        <span class="comment">/* 调用具体调度算法的接口判断能否进行前向合并 */</span></span><br><span class="line">        <span class="keyword">if</span> (e-&gt;uses_mq &amp;&amp; e-&gt;aux-&gt;ops.mq.request_merge)</span><br><span class="line">                <span class="keyword">return</span> e-&gt;aux-&gt;ops.mq.<span class="built_in">request_merge</span>(q, req, bio);</span><br><span class="line">        <span class="keyword">else</span> <span class="keyword">if</span> (!e-&gt;uses_mq &amp;&amp; e-&gt;aux-&gt;ops.sq.elevator_merge_fn)</span><br><span class="line">                <span class="keyword">return</span> e-&gt;aux-&gt;ops.sq.<span class="built_in">elevator_merge_fn</span>(q, req, bio);</span><br><span class="line"></span><br><span class="line">        <span class="keyword">return</span> ELEVATOR_NO_MERGE;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<h3 id="2-4-前-后向合并"><a href="#2-4-前-后向合并" class="headerlink" title="2.4. 前&#x2F;后向合并"></a>2.4. 前&#x2F;后向合并</h3><p>在结构体 <code>struct request</code> 中有两个成员分别是 <code>struct bio *bio</code> 和 <code>struct bio *biotail</code> ，成员 <code>bio</code> 表示还没有完成传输的第一个 bio，成员 <code>biotail</code> 指向最后一个需要处理的 bio。在结构体 <code>struct bio</code> 中有一个成员 <code>struct bio *bi_next</code> ，该成员指向下一个需要处理的 bio，多个需要连续处理的 bio 通过该成员链接。</p>
+<p>前向合并指的是将 bio 合并到 req 的前边，故基本逻辑为：</p>
+<figure class="highlight c++"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">/* 将bio插入到req前边 */</span></span><br><span class="line">bio-&gt;bi_next = req-&gt;bio;</span><br><span class="line">req-&gt;bio = bio;</span><br></pre></td></tr></table></figure>
+
+<p>后向合并指的是将 bio 合并到 req 的后边，故基本逻辑为：</p>
+<figure class="highlight c++"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">/* 将bio插入到req尾部 */</span></span><br><span class="line">req-&gt;biotail-&gt;bi_next = bio;</span><br><span class="line">req-&gt;biotail = bio;</span><br></pre></td></tr></table></figure>
+
+    </div>
+
+    
+    
+    
+
+      <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/block/" rel="tag"># block</a>
+          </div>
+
+        
+
+
+        
+    <div class="post-nav">
+      <div class="post-nav-item">
+    <a href="/2024/07/27/linux-block-deadline/" rel="prev" title="Linux Block 模块之 deadline 调度算法代码解析">
+      <i class="fa fa-chevron-left"></i> Linux Block 模块之 deadline 调度算法代码解析
+    </a></div>
+      <div class="post-nav-item"></div>
+    </div>
+      </footer>
+    
+  </article>
+  
+  
+  
+
+
+
+          </div>
+          
+
+<script>
+  window.addEventListener('tabs:register', () => {
+    let { activeClass } = CONFIG.comments;
+    if (CONFIG.comments.storage) {
+      activeClass = localStorage.getItem('comments_active') || activeClass;
+    }
+    if (activeClass) {
+      let activeTab = document.querySelector(`a[href="#comment-${activeClass}"]`);
+      if (activeTab) {
+        activeTab.click();
+      }
+    }
+  });
+  if (CONFIG.comments.storage) {
+    window.addEventListener('tabs:click', event => {
+      if (!event.target.matches('.tabs-comment .tab-content .tab-pane')) return;
+      let commentClass = event.target.classList[1];
+      localStorage.setItem('comments_active', commentClass);
+    });
+  }
+</script>
+
+        </div>
+          
+  
+  <div class="toggle sidebar-toggle">
+    <span class="toggle-line toggle-line-first"></span>
+    <span class="toggle-line toggle-line-middle"></span>
+    <span class="toggle-line toggle-line-last"></span>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <ul class="sidebar-nav motion-element">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <!--noindex-->
+      <div class="post-toc-wrap sidebar-panel">
+          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#1-I-O-%E8%B7%AF%E5%BE%84"><span class="nav-text">1. I&#x2F;O 路径</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#2-%E5%90%88%E5%B9%B6%E6%96%B9%E5%BC%8F"><span class="nav-text">2. 合并方式</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#2-1-%E9%80%BB%E8%BE%91%E5%85%A5%E5%8F%A3"><span class="nav-text">2.1. 逻辑入口</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-2-Plug-%E5%90%88%E5%B9%B6"><span class="nav-text">2.2. Plug 合并</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-3-Elevator-%E5%90%88%E5%B9%B6"><span class="nav-text">2.3. Elevator 合并</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-4-%E5%89%8D-%E5%90%8E%E5%90%91%E5%90%88%E5%B9%B6"><span class="nav-text">2.4. 前&#x2F;后向合并</span></a></li></ol></li></ol></div>
+      </div>
+      <!--/noindex-->
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+    <img class="site-author-image" itemprop="image" alt="Jrchyang"
+      src="/images/avatar.jpg">
+  <p class="site-author-name" itemprop="name">Jrchyang</p>
+  <div class="site-description" itemprop="description"></div>
+</div>
+<div class="site-state-wrap motion-element">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+          <a href="/archives/">
+        
+          <span class="site-state-item-count">8</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+        <span class="site-state-item-count">3</span>
+        <span class="site-state-item-name">分类</span>
+      </div>
+      <div class="site-state-item site-state-tags">
+        <span class="site-state-item-count">3</span>
+        <span class="site-state-item-name">标签</span>
+      </div>
+  </nav>
+</div>
+  <div class="links-of-author motion-element">
+      <span class="links-of-author-item">
+        <a href="https://github.com/jrchyang" title="GitHub → https:&#x2F;&#x2F;github.com&#x2F;jrchyang" rel="noopener" target="_blank"><i class="fab fa-github fa-fw"></i>GitHub</a>
+      </span>
+      <span class="links-of-author-item">
+        <a href="mailto:yujrchyang@gmail.com" title="E-Mail → mailto:yujrchyang@gmail.com" rel="noopener" target="_blank"><i class="fa fa-envelope fa-fw"></i>E-Mail</a>
+      </span>
+  </div>
+
+
+
+      </div>
+
+    </div>
+  </aside>
+  <div id="sidebar-dimmer"></div>
+
+
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        
+
+        
+
+<div class="copyright">
+  
+  &copy; 
+  <span itemprop="copyrightYear">2024</span>
+  <span class="with-love">
+    <i class="fa fa-heart"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">Jrchyang</span>
+</div>
+  <div class="powered-by">由 <a href="https://hexo.io/" class="theme-link" rel="noopener" target="_blank">Hexo</a> & <a href="https://theme-next.org/" class="theme-link" rel="noopener" target="_blank">NexT.Gemini</a> 强力驱动
+  </div>
+
+        
+
+
+
+
+
+
+
+
+      </div>
+    </footer>
+  </div>
+
+  
+  <script src="/lib/anime.min.js"></script>
+  <script src="/lib/velocity/velocity.min.js"></script>
+  <script src="/lib/velocity/velocity.ui.min.js"></script>
+
+<script src="/js/utils.js"></script>
+
+<script src="/js/motion.js"></script>
+
+
+<script src="/js/schemes/pisces.js"></script>
+
+
+<script src="/js/next-boot.js"></script>
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+  
+
+</body>
+</html>

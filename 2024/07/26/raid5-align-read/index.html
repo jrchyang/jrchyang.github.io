@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 7.3.0">
+<meta name="google-site-verification" content="HcM0QD3nDqJPL_6jKgULvhwh22wnrPX3x9SbgNm3dA0" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+<link rel="stylesheet" href="https://fonts.loli.ne/css?family=Lato:300,300italic,400,400italic,700,700italic&display=swap&subset=latin,latin-ext">
+<link rel="stylesheet" href="/lib/font-awesome/css/all.min.css">
+
+<script id="hexo-configurations">
+    var NexT = window.NexT || {};
+    var CONFIG = {"hostname":"jrchyang.github.io","root":"/","scheme":"Gemini","version":"7.8.0","exturl":false,"sidebar":{"position":"left","display":"post","padding":18,"offset":12,"onmobile":false},"copycode":{"enable":false,"show_result":false,"style":null},"back2top":{"enable":true,"sidebar":false,"scrollpercent":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":false,"trigger":"auto","top_n_per_article":1,"unescape":false,"preload":false},"motion":{"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}}};
+  </script>
+
+  <meta name="description" content="详细分析 RAID5 I&#x2F;O 处理中对齐读部分的代码">
+<meta property="og:type" content="article">
+<meta property="og:title" content="RAID5 I&#x2F;O 处理之对齐读代码详解">
+<meta property="og:url" content="https://jrchyang.github.io/2024/07/26/raid5-align-read/index.html">
+<meta property="og:site_name" content="Jrchyang">
+<meta property="og:description" content="详细分析 RAID5 I&#x2F;O 处理中对齐读部分的代码">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://jrchyang.github.io/images/md/raid5-align-read.svg">
+<meta property="article:published_time" content="2024-07-26T05:59:02.000Z">
+<meta property="article:modified_time" content="2024-08-06T13:40:13.982Z">
+<meta property="article:author" content="Jrchyang">
+<meta property="article:tag" content="raid5">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://jrchyang.github.io/images/md/raid5-align-read.svg">
+
+<link rel="canonical" href="https://jrchyang.github.io/2024/07/26/raid5-align-read/">
+
+
+<script id="page-configurations">
+  // https://hexo.io/docs/variables.html
+  CONFIG.page = {
+    sidebar: "",
+    isHome : false,
+    isPost : true,
+    lang   : 'zh-CN'
+  };
+</script>
+
+  <title>RAID5 I/O 处理之对齐读代码详解 | Jrchyang</title>
+  
+
+
+  <script>
+    var _hmt = _hmt || [];
+    (function() {
+      var hm = document.createElement("script");
+      hm.src = "https://hm.baidu.com/hm.js?78ac82b416bd1dcfdd98af4007d72b77";
+      var s = document.getElementsByTagName("script")[0];
+      s.parentNode.insertBefore(hm, s);
+    })();
+  </script>
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-header { opacity: initial; }
+
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="container use-motion">
+    <div class="headband"></div>
+
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏">
+      <span class="toggle-line toggle-line-first"></span>
+      <span class="toggle-line toggle-line-middle"></span>
+      <span class="toggle-line toggle-line-last"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <span class="logo-line-before"><i></i></span>
+      <h1 class="site-title">Jrchyang</h1>
+      <span class="logo-line-after"><i></i></span>
+    </a>
+      <p class="site-subtitle" itemprop="description">好好学习 天天向上</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+    </div>
+  </div>
+</div>
+
+
+
+
+<nav class="site-nav">
+  <ul id="menu" class="main-menu menu">
+        <li class="menu-item menu-item-home">
+
+    <a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a>
+
+  </li>
+        <li class="menu-item menu-item-categories">
+
+    <a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>分类</a>
+
+  </li>
+        <li class="menu-item menu-item-tags">
+
+    <a href="/tags/" rel="section"><i class="fa fa-tags fa-fw"></i>标签</a>
+
+  </li>
+        <li class="menu-item menu-item-archives">
+
+    <a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a>
+
+  </li>
+  </ul>
+</nav>
+
+
+
+
+</div>
+    </header>
+
+    
+  <div class="back-to-top">
+    <i class="fa fa-arrow-up"></i>
+    <span>0%</span>
+  </div>
+
+
+    <main class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+
+          <div class="content post posts-expand">
+            
+
+    
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://jrchyang.github.io/2024/07/26/raid5-align-read/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.jpg">
+      <meta itemprop="name" content="Jrchyang">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="Jrchyang">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          RAID5 I/O 处理之对齐读代码详解
+        </h1>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-calendar"></i>
+              </span>
+              <span class="post-meta-item-text">发表于</span>
+
+              <time title="创建时间：2024-07-26 13:59:02" itemprop="dateCreated datePublished" datetime="2024-07-26T13:59:02+08:00">2024-07-26</time>
+            </span>
+              <span class="post-meta-item">
+                <span class="post-meta-item-icon">
+                  <i class="far fa-calendar-check"></i>
+                </span>
+                <span class="post-meta-item-text">更新于</span>
+                <time title="修改时间：2024-08-06 21:40:13" itemprop="dateModified" datetime="2024-08-06T21:40:13+08:00">2024-08-06</time>
+              </span>
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-folder"></i>
+              </span>
+              <span class="post-meta-item-text">分类于</span>
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/md/" itemprop="url" rel="index"><span itemprop="name">md</span></a>
+                </span>
+            </span>
+
+          
+            <div class="post-description">详细分析 RAID5 I/O 处理中对齐读部分的代码</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+        <h2 id="1-总体流程"><a href="#1-总体流程" class="headerlink" title="1. 总体流程"></a>1. 总体流程</h2><p>当一个读请求的覆盖范围落在一个 chunk 范围内时为对齐读，流程图如下所示：</p>
+<p><img src="/../images/md/raid5-align-read.svg" alt="对齐读流程图"></p>
+<h2 id="2-入口"><a href="#2-入口" class="headerlink" title="2. 入口"></a>2. 入口</h2><p>在 RAID5 的 I&#x2F;O 处理函数 <code>make_request()</code> 一开始进行了对齐读的判断和处理，代码如下所示：</p>
+<figure class="highlight c++"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">/* </span></span><br><span class="line"><span class="comment"> * rw == READ 判断是不是读请求</span></span><br><span class="line"><span class="comment"> * mddev-&gt;reshape_position == MaxSector 判断是否正在reshape</span></span><br><span class="line"><span class="comment"> *   reshape时数据分布发生变化且以条带为单位进行，故此时只能通过条带读数据</span></span><br><span class="line"><span class="comment"> * chunk_aligned_read(mddev,bi) 调用该函数判断并执行对齐读</span></span><br><span class="line"><span class="comment"> */</span></span><br><span class="line"><span class="keyword">if</span> (rw == READ</span><br><span class="line">    &amp;&amp; mddev-&gt;reshape_position == MaxSector</span><br><span class="line">    &amp;&amp; <span class="built_in">chunk_aligned_read</span>(mddev, bi))</span><br><span class="line">        <span class="keyword">return</span>;</span><br></pre></td></tr></table></figure>
+
+<h2 id="3-下发"><a href="#3-下发" class="headerlink" title="3. 下发"></a>3. 下发</h2><p>对齐读通过函数 <code>chunk_aligned_read()</code> 下发，其代码逻辑如下所示：</p>
+<figure class="highlight c++"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br><span class="line">78</span><br><span class="line">79</span><br><span class="line">80</span><br><span class="line">81</span><br><span class="line">82</span><br><span class="line">83</span><br><span class="line">84</span><br><span class="line">85</span><br><span class="line">86</span><br><span class="line">87</span><br><span class="line">88</span><br><span class="line">89</span><br><span class="line">90</span><br><span class="line">91</span><br><span class="line">92</span><br><span class="line">93</span><br><span class="line">94</span><br><span class="line">95</span><br><span class="line">96</span><br><span class="line">97</span><br><span class="line">98</span><br><span class="line">99</span><br><span class="line">100</span><br><span class="line">101</span><br><span class="line">102</span><br><span class="line">103</span><br><span class="line">104</span><br><span class="line">105</span><br><span class="line">106</span><br><span class="line">107</span><br><span class="line">108</span><br><span class="line">109</span><br><span class="line">110</span><br><span class="line">111</span><br><span class="line">112</span><br><span class="line">113</span><br><span class="line">114</span><br><span class="line">115</span><br><span class="line">116</span><br><span class="line">117</span><br><span class="line">118</span><br><span class="line">119</span><br><span class="line">120</span><br><span class="line">121</span><br><span class="line">122</span><br><span class="line">123</span><br><span class="line">124</span><br><span class="line">125</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="type">static</span> <span class="type">int</span> <span class="title">chunk_aligned_read</span><span class="params">(<span class="keyword">struct</span> mddev *mddev, <span class="keyword">struct</span> bio *raid_bio)</span></span></span><br><span class="line"><span class="function"></span>&#123;</span><br><span class="line">        <span class="keyword">struct</span> <span class="title class_">r5conf</span> *conf = mddev-&gt;<span class="keyword">private</span>;</span><br><span class="line">        <span class="type">int</span> dd_idx;</span><br><span class="line">        <span class="keyword">struct</span> <span class="title class_">bio</span>* align_bi;</span><br><span class="line">        <span class="keyword">struct</span> <span class="title class_">md_rdev</span> *rdev;</span><br><span class="line">        <span class="type">sector_t</span> end_sector;</span><br><span class="line"> </span><br><span class="line">        <span class="comment">/* </span></span><br><span class="line"><span class="comment">         * 行判断IO是否在chunk范围内，如果不在则返回0到make_request中</span></span><br><span class="line"><span class="comment">         * 继续向下执行通过条带读取数据</span></span><br><span class="line"><span class="comment">         */</span></span><br><span class="line">        <span class="keyword">if</span> (!<span class="built_in">in_chunk_boundary</span>(mddev, raid_bio)) &#123;</span><br><span class="line">                <span class="built_in">pr_debug</span>(<span class="string">&quot;chunk_aligned_read : non aligned\n&quot;</span>);</span><br><span class="line">                <span class="keyword">return</span> <span class="number">0</span>;</span><br><span class="line">        &#125;</span><br><span class="line"> </span><br><span class="line">        <span class="comment">/* 克隆一个新的bio用于对齐读 */</span></span><br><span class="line">        align_bi = <span class="built_in">bio_clone_mddev</span>(raid_bio, GFP_NOIO, mddev);</span><br><span class="line">        <span class="keyword">if</span> (!align_bi)</span><br><span class="line">                <span class="keyword">return</span> <span class="number">0</span>;</span><br><span class="line"> </span><br><span class="line">        <span class="comment">/* 设置回调函数 */</span></span><br><span class="line">        align_bi-&gt;bi_end_io  = raid5_align_endio;</span><br><span class="line">        <span class="comment">/* 在向上层返回IO结果或重试条带读时使用原始bio */</span></span><br><span class="line">        align_bi-&gt;bi_private = raid_bio;</span><br><span class="line"> </span><br><span class="line">        <span class="comment">/* </span></span><br><span class="line"><span class="comment">         * 根据原始bio的起始位置计算其在RAID成员磁盘中的位置 </span></span><br><span class="line"><span class="comment">         * 并获取所属成员磁盘索引dd_idx</span></span><br><span class="line"><span class="comment">         */</span>  </span><br><span class="line">        align_bi-&gt;bi_sector = <span class="built_in">raid5_compute_sector</span>(conf, raid_bio-&gt;bi_sector,</span><br><span class="line">                                                   <span class="number">0</span>,</span><br><span class="line">                                                   &amp;dd_idx, <span class="literal">NULL</span>);</span><br><span class="line"> </span><br><span class="line">        <span class="comment">/* </span></span><br><span class="line"><span class="comment">         * 获取成员磁盘指针</span></span><br><span class="line"><span class="comment">         * 如果在做磁盘替换且新盘状态正常且重构进度大于bio的结束位置</span></span><br><span class="line"><span class="comment">         * 说明此时新盘包含了要读的数据，此时通过新盘读取，否则判断旧盘是否可读</span></span><br><span class="line"><span class="comment">         * 如果旧盘状态正常，且重构进度大于bio的结束位置，则可以通过旧盘读取</span></span><br><span class="line"><span class="comment">         * 如果新盘旧盘两者条件都不满足，则rdev会设置为NULL</span></span><br><span class="line"><span class="comment">         */</span></span><br><span class="line">        end_sector = <span class="built_in">bio_end_sector</span>(align_bi);</span><br><span class="line">        <span class="built_in">rcu_read_lock</span>();</span><br><span class="line">        rdev = <span class="built_in">rcu_dereference</span>(conf-&gt;disks[dd_idx].replacement);</span><br><span class="line">        <span class="keyword">if</span> (!rdev || <span class="built_in">test_bit</span>(Faulty, &amp;rdev-&gt;flags) ||</span><br><span class="line">                rdev-&gt;recovery_offset &lt; end_sector) &#123;</span><br><span class="line">                rdev = <span class="built_in">rcu_dereference</span>(conf-&gt;disks[dd_idx].rdev);</span><br><span class="line">                <span class="keyword">if</span> (rdev &amp;&amp;</span><br><span class="line">                        (<span class="built_in">test_bit</span>(Faulty, &amp;rdev-&gt;flags) ||</span><br><span class="line">                        !(<span class="built_in">test_bit</span>(In_sync, &amp;rdev-&gt;flags) ||</span><br><span class="line">                          rdev-&gt;recovery_offset &gt;= end_sector)))</span><br><span class="line">                        rdev = <span class="literal">NULL</span>;</span><br><span class="line">        &#125;</span><br><span class="line"> </span><br><span class="line">        <span class="comment">/* 处理成员磁盘可读的场景 */</span></span><br><span class="line">        <span class="keyword">if</span> (rdev) &#123;</span><br><span class="line">                <span class="type">sector_t</span> first_bad;</span><br><span class="line">                <span class="type">int</span> bad_sectors;</span><br><span class="line"> </span><br><span class="line">                <span class="comment">/* 自增成员磁盘的pending io计数 */</span></span><br><span class="line">                <span class="built_in">atomic_inc</span>(&amp;rdev-&gt;nr_pending);</span><br><span class="line">                <span class="built_in">rcu_read_unlock</span>();</span><br><span class="line">                <span class="comment">/* </span></span><br><span class="line"><span class="comment">                 * 将成员磁盘指针赋值给原始bio的bi_next域用于在回调函数中获取bio所属成员磁盘</span></span><br><span class="line"><span class="comment">                 * 在对齐读中，使用克隆的bio所以原始bio的bi_next域不会被使用</span></span><br><span class="line"><span class="comment">                 */</span></span><br><span class="line">                raid_bio-&gt;bi_next = (<span class="type">void</span>*)rdev;</span><br><span class="line">                <span class="comment">/* 设置bio所属成员磁盘的块设备指针 */</span></span><br><span class="line">                align_bi-&gt;bi_bdev = rdev-&gt;bdev;</span><br><span class="line">                <span class="comment">/* </span></span><br><span class="line"><span class="comment">                 * 设置BIO_SEG_VALID标记，表明bi_phys_segments是有效的</span></span><br><span class="line"><span class="comment">                 * bi_phys_segments是bio要处理的“物理地址连续数据段”的计数</span></span><br><span class="line"><span class="comment">                 * 即有多少段连续的数据</span></span><br><span class="line"><span class="comment">                 */</span></span><br><span class="line">                align_bi-&gt;bi_flags &amp;= ~(<span class="number">1</span> &lt;&lt; BIO_SEG_VALID);</span><br><span class="line"> </span><br><span class="line">                <span class="comment">/**</span></span><br><span class="line"><span class="comment">                 * 判断bio能否下发。</span></span><br><span class="line"><span class="comment">                 * 首先调用bio_fits_rdev判断bio的属性是否满足底层块设备的限制</span></span><br><span class="line"><span class="comment">                 * 然后调用is_badblock判断bio覆盖的范围是否有坏块</span></span><br><span class="line"><span class="comment">                 * 如果不满足底层块设备限制或有坏块，则不能进行对齐读</span></span><br><span class="line"><span class="comment">                 * 释放克隆的bio自减成员磁盘pending io计数后返回0到make_request中</span></span><br><span class="line"><span class="comment">                 * 使其向下执行，通过条带读取数据</span></span><br><span class="line"><span class="comment">                 */</span></span><br><span class="line">                <span class="keyword">if</span> (!<span class="built_in">bio_fits_rdev</span>(align_bi) ||</span><br><span class="line">                        <span class="built_in">is_badblock</span>(rdev, align_bi-&gt;bi_sector, <span class="built_in">bio_sectors</span>(align_bi),</span><br><span class="line">                                &amp;first_bad, &amp;bad_sectors)) &#123;</span><br><span class="line">                        <span class="comment">/* too big in some way, or has a known bad block */</span></span><br><span class="line">                        <span class="built_in">bio_put</span>(align_bi);</span><br><span class="line">                        <span class="built_in">rdev_dec_pending</span>(rdev, mddev);</span><br><span class="line">                        <span class="keyword">return</span> <span class="number">0</span>;</span><br><span class="line">                &#125;</span><br><span class="line"> </span><br><span class="line">                <span class="comment">/* 设置bio相对于底层磁盘的起始位置 */</span></span><br><span class="line">                align_bi-&gt;bi_sector += rdev-&gt;data_offset;</span><br><span class="line"> </span><br><span class="line">                <span class="comment">/* 等待RAID解除“静默”。RAID可被用户手动设置为“静默”状态即不处理业务 */</span></span><br><span class="line">                <span class="built_in">spin_lock_irq</span>(&amp;conf-&gt;device_lock);</span><br><span class="line">                <span class="built_in">wait_event_lock_irq</span>(conf-&gt;wait_for_stripe,</span><br><span class="line">                                    conf-&gt;quiesce == <span class="number">0</span>,</span><br><span class="line">                                    conf-&gt;device_lock);</span><br><span class="line">                <span class="built_in">atomic_inc</span>(&amp;conf-&gt;active_aligned_reads);</span><br><span class="line">                <span class="built_in">spin_unlock_irq</span>(&amp;conf-&gt;device_lock);</span><br><span class="line"> </span><br><span class="line">                <span class="keyword">if</span> (mddev-&gt;gendisk)</span><br><span class="line">                        <span class="comment">/* 用于块设备的IO统计 */</span></span><br><span class="line">                        <span class="built_in">trace_block_bio_remap</span>(<span class="built_in">bdev_get_queue</span>(align_bi-&gt;bi_bdev),</span><br><span class="line">                                              align_bi, <span class="built_in">disk_devt</span>(mddev-&gt;gendisk),</span><br><span class="line">                                              raid_bio-&gt;bi_sector);</span><br><span class="line"> </span><br><span class="line">                <span class="comment">/* 调用generic_make_request将bio提交到底层块设备处理 */</span></span><br><span class="line">                <span class="built_in">generic_make_request</span>(align_bi);</span><br><span class="line">                <span class="comment">/* 返回1到make_request中，make_request结束，等待IO完成后的回调 */</span></span><br><span class="line">                <span class="keyword">return</span> <span class="number">1</span>;</span><br><span class="line">        &#125; <span class="keyword">else</span> &#123;</span><br><span class="line">                <span class="comment">/* </span></span><br><span class="line"><span class="comment">                 * 处理rdev被赋值为NULL的情况，此时释放克隆的bio</span></span><br><span class="line"><span class="comment">                 * 返回0到make_request中继续向下执行，通过条带读取数据</span></span><br><span class="line"><span class="comment">                 */</span></span><br><span class="line">                <span class="built_in">rcu_read_unlock</span>();</span><br><span class="line">                <span class="built_in">bio_put</span>(align_bi);</span><br><span class="line">                <span class="keyword">return</span> <span class="number">0</span>;</span><br><span class="line">        &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<h2 id="4-回调"><a href="#4-回调" class="headerlink" title="4. 回调"></a>4. 回调</h2><p>对齐读请求的回调函数为 <code>raid5_align_endio()</code> ，其代码逻辑如下所示：</p>
+<figure class="highlight c++"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">/* error参数表示IO执行是否异常 */</span></span><br><span class="line"><span class="function"><span class="type">static</span> <span class="type">void</span> <span class="title">raid5_align_endio</span><span class="params">(<span class="keyword">struct</span> bio *bi, <span class="type">int</span> error)</span></span></span><br><span class="line"><span class="function"></span>&#123;</span><br><span class="line">        <span class="keyword">struct</span> <span class="title class_">bio</span>* raid_bi  = bi-&gt;bi_private;</span><br><span class="line">        <span class="keyword">struct</span> <span class="title class_">mddev</span> *mddev;</span><br><span class="line">        <span class="keyword">struct</span> <span class="title class_">r5conf</span> *conf;</span><br><span class="line">        <span class="comment">/* 获取IO执行结果。如果成功则设置BIO_UPTODATE标记，uptodate为真 */</span></span><br><span class="line">        <span class="type">int</span> uptodate = <span class="built_in">test_bit</span>(BIO_UPTODATE, &amp;bi-&gt;bi_flags);</span><br><span class="line">        <span class="keyword">struct</span> <span class="title class_">md_rdev</span> *rdev;</span><br><span class="line"> </span><br><span class="line">        <span class="comment">/* 无论IO执行是否成功，都可以将之前克隆的bio释放掉 */</span></span><br><span class="line">        <span class="built_in">bio_put</span>(bi);</span><br><span class="line">        <span class="comment">/* 获取bio所在RAID的成员磁盘 */</span></span><br><span class="line">        rdev = (<span class="type">void</span>*)raid_bi-&gt;bi_next;</span><br><span class="line">        raid_bi-&gt;bi_next = <span class="literal">NULL</span>;</span><br><span class="line">        mddev = rdev-&gt;mddev;</span><br><span class="line">        conf = mddev-&gt;<span class="keyword">private</span>;</span><br><span class="line"> </span><br><span class="line">        <span class="comment">/* IO执行完毕，自减成员磁盘的pending io计数 */</span></span><br><span class="line">        <span class="built_in">rdev_dec_pending</span>(rdev, conf-&gt;mddev);</span><br><span class="line"> </span><br><span class="line">        <span class="comment">/* </span></span><br><span class="line"><span class="comment">         * IO执行成功，调用trace_block_bio_complete设置IO统计信息</span></span><br><span class="line"><span class="comment">         * 调用bio_endio向上层返回成功，当正在处理的对齐读为0时唤醒等待条带的进程</span></span><br><span class="line"><span class="comment">         */</span></span><br><span class="line">        <span class="keyword">if</span> (!error &amp;&amp; uptodate) &#123;</span><br><span class="line">                <span class="built_in">trace_block_bio_complete</span>(<span class="built_in">bdev_get_queue</span>(raid_bi-&gt;bi_bdev),</span><br><span class="line">                                         raid_bi, <span class="number">0</span>);</span><br><span class="line">                <span class="built_in">bio_endio</span>(raid_bi, <span class="number">0</span>);</span><br><span class="line">                <span class="keyword">if</span> (<span class="built_in">atomic_dec_and_test</span>(&amp;conf-&gt;active_aligned_reads))</span><br><span class="line">                        <span class="built_in">wake_up</span>(&amp;conf-&gt;wait_for_stripe);</span><br><span class="line">                <span class="keyword">return</span>;</span><br><span class="line">        &#125;</span><br><span class="line"> </span><br><span class="line">        <span class="comment">/* 对齐读失败，调用add_bio_to_retry将bio添加到重试链表中进行重试 */</span></span><br><span class="line">        <span class="built_in">pr_debug</span>(<span class="string">&quot;raid5_align_endio : io error...handing IO for a retry\n&quot;</span>);</span><br><span class="line">        <span class="built_in">add_bio_to_retry</span>(raid_bi, conf);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<h2 id="5-重试"><a href="#5-重试" class="headerlink" title="5. 重试"></a>5. 重试</h2><p>先将 bio 加入到重试链表中，再有 <code>raid5d()</code> 统一处理，代码逻辑如下所示：</p>
+<figure class="highlight c++"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br><span class="line">78</span><br><span class="line">79</span><br><span class="line">80</span><br><span class="line">81</span><br><span class="line">82</span><br><span class="line">83</span><br><span class="line">84</span><br><span class="line">85</span><br><span class="line">86</span><br><span class="line">87</span><br><span class="line">88</span><br><span class="line">89</span><br><span class="line">90</span><br><span class="line">91</span><br><span class="line">92</span><br><span class="line">93</span><br><span class="line">94</span><br><span class="line">95</span><br><span class="line">96</span><br><span class="line">97</span><br><span class="line">98</span><br><span class="line">99</span><br><span class="line">100</span><br><span class="line">101</span><br><span class="line">102</span><br><span class="line">103</span><br><span class="line">104</span><br><span class="line">105</span><br><span class="line">106</span><br><span class="line">107</span><br><span class="line">108</span><br><span class="line">109</span><br><span class="line">110</span><br><span class="line">111</span><br><span class="line">112</span><br><span class="line">113</span><br><span class="line">114</span><br><span class="line">115</span><br><span class="line">116</span><br><span class="line">117</span><br><span class="line">118</span><br><span class="line">119</span><br><span class="line">120</span><br><span class="line">121</span><br><span class="line">122</span><br><span class="line">123</span><br><span class="line">124</span><br><span class="line">125</span><br><span class="line">126</span><br><span class="line">127</span><br><span class="line">128</span><br><span class="line">129</span><br><span class="line">130</span><br><span class="line">131</span><br><span class="line">132</span><br><span class="line">133</span><br><span class="line">134</span><br><span class="line">135</span><br><span class="line">136</span><br><span class="line">137</span><br><span class="line">138</span><br><span class="line">139</span><br><span class="line">140</span><br><span class="line">141</span><br><span class="line">142</span><br><span class="line">143</span><br><span class="line">144</span><br><span class="line">145</span><br><span class="line">146</span><br><span class="line">147</span><br><span class="line">148</span><br><span class="line">149</span><br><span class="line">150</span><br><span class="line">151</span><br><span class="line">152</span><br><span class="line">153</span><br><span class="line">154</span><br><span class="line">155</span><br><span class="line">156</span><br><span class="line">157</span><br><span class="line">158</span><br><span class="line">159</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="type">static</span> <span class="type">void</span> <span class="title">add_bio_to_retry</span><span class="params">(<span class="keyword">struct</span> bio *bi,<span class="keyword">struct</span> r5conf *conf)</span></span></span><br><span class="line"><span class="function"></span>&#123;</span><br><span class="line">        <span class="type">unsigned</span> <span class="type">long</span> flags;</span><br><span class="line"> </span><br><span class="line">        <span class="built_in">spin_lock_irqsave</span>(&amp;conf-&gt;device_lock, flags);</span><br><span class="line"> </span><br><span class="line">        <span class="comment">/* 将bio插入到重试链表retry_read_aligned_list的头部 */</span></span><br><span class="line">        bi-&gt;bi_next = conf-&gt;retry_read_aligned_list;</span><br><span class="line">        conf-&gt;retry_read_aligned_list = bi;</span><br><span class="line"> </span><br><span class="line">        <span class="built_in">spin_unlock_irqrestore</span>(&amp;conf-&gt;device_lock, flags);</span><br><span class="line"> </span><br><span class="line">        <span class="comment">/* 唤醒raid5d线程处理请求 */</span></span><br><span class="line">        <span class="built_in">md_wakeup_thread</span>(conf-&gt;mddev-&gt;thread);</span><br><span class="line">&#125;</span><br><span class="line"> </span><br><span class="line"><span class="comment">/* 这里只截取了对齐读重试的代码 */</span></span><br><span class="line"><span class="function"><span class="type">static</span> <span class="type">void</span> <span class="title">raid5d</span><span class="params">(<span class="keyword">struct</span> md_thread *thread)</span></span></span><br><span class="line"><span class="function"></span>&#123;</span><br><span class="line">        ...</span><br><span class="line"> </span><br><span class="line">        <span class="comment">/* 从重试链表中获取一个待重试的bio */</span></span><br><span class="line">        <span class="keyword">while</span> ((bio = <span class="built_in">remove_bio_from_retry</span>(conf))) &#123;</span><br><span class="line">                <span class="type">int</span> ok;</span><br><span class="line">                <span class="built_in">spin_unlock_irq</span>(&amp;conf-&gt;device_lock);</span><br><span class="line">                <span class="comment">/* 进行重试 */</span></span><br><span class="line">                ok = <span class="built_in">retry_aligned_read</span>(conf, bio);</span><br><span class="line">                <span class="built_in">spin_lock_irq</span>(&amp;conf-&gt;device_lock);</span><br><span class="line">                <span class="keyword">if</span> (!ok)</span><br><span class="line">                        <span class="keyword">break</span>;</span><br><span class="line">                handled++;</span><br><span class="line">        &#125;</span><br><span class="line"> </span><br><span class="line">        ...</span><br><span class="line">&#125;</span><br><span class="line"> </span><br><span class="line"><span class="type">static</span> <span class="keyword">struct</span> <span class="title class_">bio</span> *<span class="built_in">remove_bio_from_retry</span>(<span class="keyword">struct</span> r5conf *conf)</span><br><span class="line">&#123;</span><br><span class="line">        <span class="keyword">struct</span> <span class="title class_">bio</span> *bi;</span><br><span class="line"> </span><br><span class="line">        <span class="comment">/* </span></span><br><span class="line"><span class="comment">         * retry_read_aligned中保存上一次重试未完成的对齐读</span></span><br><span class="line"><span class="comment">         * 所以这里优先返回上一次未重试完成的对齐读请求</span></span><br><span class="line"><span class="comment">         */</span></span><br><span class="line">        bi = conf-&gt;retry_read_aligned;</span><br><span class="line">        <span class="keyword">if</span> (bi) &#123;</span><br><span class="line">                conf-&gt;retry_read_aligned = <span class="literal">NULL</span>;</span><br><span class="line">                <span class="keyword">return</span> bi;</span><br><span class="line">        &#125;</span><br><span class="line"> </span><br><span class="line">        <span class="comment">/* </span></span><br><span class="line"><span class="comment">         * 从retry_read_aligned_list链表头部取出第一个需要重试的对齐读请求</span></span><br><span class="line"><span class="comment">         * 调用raid5_set_bi_stripes设置bi_phys_segments计数为1</span></span><br><span class="line"><span class="comment">         */</span></span><br><span class="line">        bi = conf-&gt;retry_read_aligned_list;</span><br><span class="line">        <span class="keyword">if</span>(bi) &#123;</span><br><span class="line">                conf-&gt;retry_read_aligned_list = bi-&gt;bi_next;</span><br><span class="line">                bi-&gt;bi_next = <span class="literal">NULL</span>;</span><br><span class="line">                <span class="comment">/*</span></span><br><span class="line"><span class="comment">                 * this sets the active strip count to 1 and the processed</span></span><br><span class="line"><span class="comment">                 * strip count to zero (upper 8 bits)</span></span><br><span class="line"><span class="comment">                 */</span></span><br><span class="line">                <span class="built_in">raid5_set_bi_stripes</span>(bi, <span class="number">1</span>); <span class="comment">/* biased count of active stripes */</span></span><br><span class="line">        &#125;</span><br><span class="line"> </span><br><span class="line">        <span class="comment">/* 返回请求到raid5d中 */</span></span><br><span class="line">        <span class="keyword">return</span> bi;</span><br><span class="line">&#125;</span><br><span class="line"> </span><br><span class="line"><span class="function"><span class="type">static</span> <span class="type">int</span> <span class="title">retry_aligned_read</span><span class="params">(<span class="keyword">struct</span> r5conf *conf, <span class="keyword">struct</span> bio *raid_bio)</span></span></span><br><span class="line"><span class="function"></span>&#123;</span><br><span class="line">        <span class="comment">/* We may not be able to submit a whole bio at once as there</span></span><br><span class="line"><span class="comment">         * may not be enough stripe_heads available.</span></span><br><span class="line"><span class="comment">         * We cannot pre-allocate enough stripe_heads as we may need</span></span><br><span class="line"><span class="comment">         * more than exist in the cache (if we allow ever large chunks).</span></span><br><span class="line"><span class="comment">         * So we do one stripe head at a time and record in</span></span><br><span class="line"><span class="comment">         * -&gt;bi_hw_segments how many have been done.</span></span><br><span class="line"><span class="comment">         *</span></span><br><span class="line"><span class="comment">         * We *know* that this entire raid_bio is in one chunk, so</span></span><br><span class="line"><span class="comment">         * it will be only one &#x27;dd_idx&#x27; and only need one call to raid5_compute_sector.</span></span><br><span class="line"><span class="comment">         */</span></span><br><span class="line">        <span class="keyword">struct</span> <span class="title class_">stripe_head</span> *sh;</span><br><span class="line">        <span class="type">int</span> dd_idx;</span><br><span class="line">        <span class="type">sector_t</span> sector, logical_sector, last_sector;</span><br><span class="line">        <span class="type">int</span> scnt = <span class="number">0</span>;</span><br><span class="line">        <span class="type">int</span> remaining;</span><br><span class="line">        <span class="type">int</span> handled = <span class="number">0</span>;</span><br><span class="line"> </span><br><span class="line">        <span class="comment">/* 获取bio所在条带头的起始位置 */</span></span><br><span class="line">        logical_sector = raid_bio-&gt;bi_sector &amp; ~((<span class="type">sector_t</span>)STRIPE_SECTORS<span class="number">-1</span>);</span><br><span class="line">        <span class="comment">/* 获取bio相对于其所属RAID成员磁盘的起始位置的偏移 */</span></span><br><span class="line">        sector = <span class="built_in">raid5_compute_sector</span>(conf, logical_sector,</span><br><span class="line">                                      <span class="number">0</span>, &amp;dd_idx, <span class="literal">NULL</span>);</span><br><span class="line">        <span class="comment">/* 获取bio的结束扇区数 */</span></span><br><span class="line">        last_sector = <span class="built_in">bio_end_sector</span>(raid_bio);</span><br><span class="line"> </span><br><span class="line">        <span class="comment">/* </span></span><br><span class="line"><span class="comment">         * 由于RAID5处理数据的单位是条带，所以这里使用for循环进行bio逻辑上的“切割”</span></span><br><span class="line"><span class="comment">         * 将bio挂载到相应的条带上。scnt是bio处理的条带计数，随着条带的下发进行自增</span></span><br><span class="line"><span class="comment">         */</span></span><br><span class="line">        <span class="keyword">for</span> (; logical_sector &lt; last_sector;</span><br><span class="line">                 logical_sector += STRIPE_SECTORS,</span><br><span class="line">                         sector += STRIPE_SECTORS,</span><br><span class="line">                         scnt++) &#123;</span><br><span class="line"> </span><br><span class="line">                <span class="comment">/* </span></span><br><span class="line"><span class="comment">                 * 跳过该bio已经处理的部分</span></span><br><span class="line"><span class="comment">                 * bio可能在没有全部下发的情况下退出该函数（如获取不到空闲条带）</span></span><br><span class="line"><span class="comment">                 * 此时会通过raid5_set_bi_processed_stripes函数设置已处理过的条带计数</span></span><br><span class="line"><span class="comment">                 */</span></span><br><span class="line">                <span class="keyword">if</span> (scnt &lt; <span class="built_in">raid5_bi_processed_stripes</span>(raid_bio))</span><br><span class="line">                        <span class="comment">/* already done this stripe */</span></span><br><span class="line">                        <span class="keyword">continue</span>;</span><br><span class="line"> </span><br><span class="line">                <span class="comment">/* </span></span><br><span class="line"><span class="comment">                 * 获取一个空闲的条带</span></span><br><span class="line"><span class="comment">                 * 如果获取失败，则设置已处理条带计数，将bio挂载到</span></span><br><span class="line"><span class="comment">                 * 未处理完成的对齐读重试链表retry_read_aligned中返回</span></span><br><span class="line"><span class="comment">                 */</span></span><br><span class="line">                sh = <span class="built_in">get_active_stripe</span>(conf, sector, <span class="number">0</span>, <span class="number">1</span>, <span class="number">0</span>);</span><br><span class="line">                <span class="keyword">if</span> (!sh) &#123;</span><br><span class="line">                        <span class="comment">/* failed to get a stripe - must wait */</span></span><br><span class="line">                        <span class="built_in">raid5_set_bi_processed_stripes</span>(raid_bio, scnt);</span><br><span class="line">                        conf-&gt;retry_read_aligned = raid_bio;</span><br><span class="line">                        <span class="keyword">return</span> handled;</span><br><span class="line">                &#125;</span><br><span class="line"> </span><br><span class="line">                <span class="comment">/* 将bio添加到链表中，如果添加失败处理同上 */</span></span><br><span class="line">                <span class="keyword">if</span> (!<span class="built_in">add_stripe_bio</span>(sh, raid_bio, dd_idx, <span class="number">0</span>)) &#123;</span><br><span class="line">                        <span class="built_in">release_stripe</span>(sh);</span><br><span class="line">                        <span class="built_in">raid5_set_bi_processed_stripes</span>(raid_bio, scnt);</span><br><span class="line">                        conf-&gt;retry_read_aligned = raid_bio;</span><br><span class="line">                        <span class="keyword">return</span> handled;</span><br><span class="line">                &#125;</span><br><span class="line"> </span><br><span class="line">                <span class="comment">/* 设置不合并属性 */</span></span><br><span class="line">                <span class="built_in">set_bit</span>(R5_ReadNoMerge, &amp;sh-&gt;dev[dd_idx].flags);</span><br><span class="line">                <span class="comment">/* 将条带推入状态机处理 */</span></span><br><span class="line">                <span class="built_in">handle_stripe</span>(sh);</span><br><span class="line">                <span class="built_in">release_stripe</span>(sh);</span><br><span class="line">                handled++;</span><br><span class="line">        &#125;</span><br><span class="line"> </span><br><span class="line">        <span class="comment">/* </span></span><br><span class="line"><span class="comment">         * 如果bio的bi_phys_segments计数为0则说明已处理完毕</span></span><br><span class="line"><span class="comment">         * 调用bio_endio向上层返回</span></span><br><span class="line"><span class="comment">         */</span></span><br><span class="line">        remaining = <span class="built_in">raid5_dec_bi_active_stripes</span>(raid_bio);</span><br><span class="line">        <span class="keyword">if</span> (remaining == <span class="number">0</span>) &#123;</span><br><span class="line">                <span class="built_in">trace_block_bio_complete</span>(<span class="built_in">bdev_get_queue</span>(raid_bio-&gt;bi_bdev),</span><br><span class="line">                                         raid_bio, <span class="number">0</span>);</span><br><span class="line">                <span class="built_in">bio_endio</span>(raid_bio, <span class="number">0</span>);</span><br><span class="line">        &#125;</span><br><span class="line"> </span><br><span class="line">        <span class="comment">/* 如果正在重试的对齐读为0则唤醒等待条带的线程 */</span></span><br><span class="line">        <span class="keyword">if</span> (<span class="built_in">atomic_dec_and_test</span>(&amp;conf-&gt;active_aligned_reads))</span><br><span class="line">                <span class="built_in">wake_up</span>(&amp;conf-&gt;wait_for_stripe);</span><br><span class="line">        <span class="keyword">return</span> handled;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>自此，重试的对齐读改为通过条带获取其数据，剩下的流程和条带读相同，统一放到条带读流程中进行分析。</p>
+
+    </div>
+
+    
+    
+    
+
+      <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/raid5/" rel="tag"># raid5</a>
+          </div>
+
+        
+
+
+        
+    <div class="post-nav">
+      <div class="post-nav-item">
+    <a href="/2023/04/23/vm-setup-proxy/" rel="prev" title="虚拟机设置代理">
+      <i class="fa fa-chevron-left"></i> 虚拟机设置代理
+    </a></div>
+      <div class="post-nav-item">
+    <a href="/2024/07/26/raid5-stripe-read/" rel="next" title="RAID5 I/O 处理之条带读代码详解">
+      RAID5 I/O 处理之条带读代码详解 <i class="fa fa-chevron-right"></i>
+    </a></div>
+    </div>
+      </footer>
+    
+  </article>
+  
+  
+  
+
+
+
+          </div>
+          
+
+<script>
+  window.addEventListener('tabs:register', () => {
+    let { activeClass } = CONFIG.comments;
+    if (CONFIG.comments.storage) {
+      activeClass = localStorage.getItem('comments_active') || activeClass;
+    }
+    if (activeClass) {
+      let activeTab = document.querySelector(`a[href="#comment-${activeClass}"]`);
+      if (activeTab) {
+        activeTab.click();
+      }
+    }
+  });
+  if (CONFIG.comments.storage) {
+    window.addEventListener('tabs:click', event => {
+      if (!event.target.matches('.tabs-comment .tab-content .tab-pane')) return;
+      let commentClass = event.target.classList[1];
+      localStorage.setItem('comments_active', commentClass);
+    });
+  }
+</script>
+
+        </div>
+          
+  
+  <div class="toggle sidebar-toggle">
+    <span class="toggle-line toggle-line-first"></span>
+    <span class="toggle-line toggle-line-middle"></span>
+    <span class="toggle-line toggle-line-last"></span>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <ul class="sidebar-nav motion-element">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <!--noindex-->
+      <div class="post-toc-wrap sidebar-panel">
+          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#1-%E6%80%BB%E4%BD%93%E6%B5%81%E7%A8%8B"><span class="nav-text">1. 总体流程</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#2-%E5%85%A5%E5%8F%A3"><span class="nav-text">2. 入口</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#3-%E4%B8%8B%E5%8F%91"><span class="nav-text">3. 下发</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#4-%E5%9B%9E%E8%B0%83"><span class="nav-text">4. 回调</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#5-%E9%87%8D%E8%AF%95"><span class="nav-text">5. 重试</span></a></li></ol></div>
+      </div>
+      <!--/noindex-->
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+    <img class="site-author-image" itemprop="image" alt="Jrchyang"
+      src="/images/avatar.jpg">
+  <p class="site-author-name" itemprop="name">Jrchyang</p>
+  <div class="site-description" itemprop="description"></div>
+</div>
+<div class="site-state-wrap motion-element">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+          <a href="/archives/">
+        
+          <span class="site-state-item-count">8</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+        <span class="site-state-item-count">3</span>
+        <span class="site-state-item-name">分类</span>
+      </div>
+      <div class="site-state-item site-state-tags">
+        <span class="site-state-item-count">3</span>
+        <span class="site-state-item-name">标签</span>
+      </div>
+  </nav>
+</div>
+  <div class="links-of-author motion-element">
+      <span class="links-of-author-item">
+        <a href="https://github.com/jrchyang" title="GitHub → https:&#x2F;&#x2F;github.com&#x2F;jrchyang" rel="noopener" target="_blank"><i class="fab fa-github fa-fw"></i>GitHub</a>
+      </span>
+      <span class="links-of-author-item">
+        <a href="mailto:yujrchyang@gmail.com" title="E-Mail → mailto:yujrchyang@gmail.com" rel="noopener" target="_blank"><i class="fa fa-envelope fa-fw"></i>E-Mail</a>
+      </span>
+  </div>
+
+
+
+      </div>
+
+    </div>
+  </aside>
+  <div id="sidebar-dimmer"></div>
+
+
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        
+
+        
+
+<div class="copyright">
+  
+  &copy; 
+  <span itemprop="copyrightYear">2024</span>
+  <span class="with-love">
+    <i class="fa fa-heart"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">Jrchyang</span>
+</div>
+  <div class="powered-by">由 <a href="https://hexo.io/" class="theme-link" rel="noopener" target="_blank">Hexo</a> & <a href="https://theme-next.org/" class="theme-link" rel="noopener" target="_blank">NexT.Gemini</a> 强力驱动
+  </div>
+
+        
+
+
+
+
+
+
+
+
+      </div>
+    </footer>
+  </div>
+
+  
+  <script src="/lib/anime.min.js"></script>
+  <script src="/lib/velocity/velocity.min.js"></script>
+  <script src="/lib/velocity/velocity.ui.min.js"></script>
+
+<script src="/js/utils.js"></script>
+
+<script src="/js/motion.js"></script>
+
+
+<script src="/js/schemes/pisces.js"></script>
+
+
+<script src="/js/next-boot.js"></script>
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+  
+
+</body>
+</html>
